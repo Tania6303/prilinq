@@ -660,6 +660,11 @@ function extractSpecialLengthNumbers(content, existing) {
     for (let i = 0; i < longNumbers.length && numbers.length < 10; i++) {
         const num = longNumbers[i];
 
+        // סינון: התעלם ממספרים שמתחילים בשנה (202X) - אלה תאריכים, לא VIN
+        if (num.startsWith('202')) {
+            continue;
+        }
+
         if (!isValueExists(num, existing)) {
             const context = findContext(content, num);
 
