@@ -511,7 +511,8 @@ function searchDocuments(ocrFields, azureText, patterns, docsList) {
 
     let availableDocs = [];
     try {
-        availableDocs = docsList.list_of_docs.map(d => JSON.parse(d));
+        // תיקון: flatMap כדי לשטח מערכים מקוננים
+        availableDocs = docsList.list_of_docs.flatMap(d => JSON.parse(d));
     } catch (e) {
         return foundDocs;
     }
