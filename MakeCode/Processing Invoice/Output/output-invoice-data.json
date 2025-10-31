@@ -1,0 +1,28 @@
+{
+  "PINVOICES": [
+    {
+      "SUPNAME": "3979",
+      "CODE": "ש\"ח",
+      "DEBIT": "D",
+      "IVDATE": "10/09/25",
+      "BOOKNUM": "1015938",
+      "DETAILS": "טיפול 75000 ק\"מ",
+      "PINVOICEITEMS_SUBFORM": [
+        {
+          "PARTNAME": "car",
+          "PDES": "טיפול 75000 ק\"מ",
+          "TQUANT": 1,
+          "TUNITNAME": "יח'",
+          "PRICE": 2138.98,
+          "VATFLAG": "Y",
+          "ACCNAME": "66961"
+        }
+      ],
+      "PINVOICESCONT_SUBFORM": [
+        {
+          "FNCPATNAME": "2323"
+        }
+      ]
+    }
+  ]
+}
