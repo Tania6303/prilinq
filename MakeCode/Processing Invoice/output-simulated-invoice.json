@@ -6,23 +6,14 @@
       "DEBIT": "D",
       "IVDATE": "10/09/25",
       "BOOKNUM": "1015938",
-      "DETAILS": "",
+      "DETAILS": "טיפול 75,000 ק״מ",
       "PINVOICEITEMS_SUBFORM": [
         {
           "PARTNAME": "car",
-          "PDES": "",
+          "PDES": "טיפול 75,000 ק״מ",
           "TQUANT": 1,
           "TUNITNAME": "יח'",
-          "PRICE": 142.59866666666667,
-          "VATFLAG": "Y",
-          "ACCNAME": "66961"
-        },
-        {
-          "PARTNAME": "car",
-          "PDES": "",
-          "TQUANT": 1,
-          "TUNITNAME": "יח'",
-          "PRICE": 142.59866666666667,
+          "PRICE": 2138.98,
           "VATFLAG": "Y",
           "ACCNAME": "66961"
         }

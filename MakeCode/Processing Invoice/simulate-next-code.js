@@ -99,12 +99,18 @@ async function simulateNextCode() {
         }
         extractedData.PRICE = price;
 
-        // 2.4 DETAILS
-        const detailsRule = technicalConfig.extraction_rules.details;
-        extractedData.DETAILS = ocrFields.InvoiceDescription || "";
-        console.log(`✅ DETAILS: ${extractedData.DETAILS}`);
+        // 2.4 DETAILS - FIX: Use Items[0].Description as per technical_config
+        const detailsRule = technicalConfig.extraction_rules.description;
+        const items = ocrFields.Items || [];
+        if (items.length > 0 && items[0].Description) {
+            extractedData.DETAILS = items[0].Description;
+            console.log(`✅ DETAILS: ${extractedData.DETAILS} (from Items[0].Description)`);
+        } else {
+            extractedData.DETAILS = ocrFields.InvoiceDescription || "";
+            console.log(`✅ DETAILS: ${extractedData.DETAILS} (fallback)`);
+        }
 
-        // 2.5 VEHICLES
+        // 2.5 VEHICLES - FIX: Filter by label="רכב" as per technical_config
         const vehicleRule = technicalConfig.extraction_rules.vehicles;
         let vehicles = [];
 
@@ -113,17 +119,30 @@ async function simulateNextCode() {
             vehicles = ocrFields.VehicleNumbers.map(v =>
                 typeof v === 'object' ? v.value : v
             );
+            console.log(`✅ Found ${vehicles.length} vehicles in VehicleNumbers field`);
         } else {
-            // Search in UnidentifiedNumbers
+            // Search in UnidentifiedNumbers with label filter
             const unidentified = ocrFields.UnidentifiedNumbers || [];
-            const vehiclePattern = new RegExp(vehicleRule.pattern);
+            const vehiclePattern = new RegExp(vehicleRule.search_locations[0].pattern);
+            const labelFilter = vehicleRule.search_locations[0].filter.label; // "רכב"
 
             unidentified.forEach(item => {
-                const value = typeof item === 'object' ? item.value : item;
-                if (vehiclePattern.test(value)) {
-                    vehicles.push(value);
+                if (typeof item === 'object') {
+                    const value = item.value;
+                    const label = item.label || '';
+
+                    // Filter by label AND pattern
+                    if (label === labelFilter && vehiclePattern.test(value)) {
+                        vehicles.push(value);
+                    }
+                } else {
+                    // Old format - just check pattern
+                    if (vehiclePattern.test(item)) {
+                        vehicles.push(item);
+                    }
                 }
             });
+            console.log(`✅ Found ${vehicles.length} vehicles in UnidentifiedNumbers with label="${labelFilter}"`);
         }
         extractedData.VEHICLES = vehicles;
         console.log(`✅ VEHICLES: ${vehicles.length} found - ${vehicles.join(', ')}`);

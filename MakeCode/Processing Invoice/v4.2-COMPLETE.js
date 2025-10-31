@@ -211,6 +211,17 @@ function processInvoiceComplete(input) {
         // פלט 2: קונפיג טכני למערכת
         const technicalConfig = generateTechnicalConfig(config, ocrFields, searchResults, executionReport);
 
+        // פלט 3: סצנריו עיבוד - מה MAKE צריך לשלוף מהמערכת
+        const hasVehicles = vehicleRules &&
+                           vehicleRules.vehicle_account_mapping &&
+                           Object.keys(vehicleRules.vehicle_account_mapping).length > 0;
+
+        const processingScenario = {
+            check_docs: structure.has_doc || false,
+            check_import: structure.has_import || false,
+            check_vehicles: hasVehicles || false
+        };
+
         return {
             status: "success",
 
@@ -223,7 +234,10 @@ function processInvoiceComplete(input) {
             llm_prompt: llmPrompt,
 
             // 3. קונפיג טכני למערכת
-            technical_config: technicalConfig
+            technical_config: technicalConfig,
+
+            // 4. סצנריו עיבוד - מה צריך לשלוף מהמערכת
+            processing_scenario: processingScenario
         };
 
     } catch (error) {
