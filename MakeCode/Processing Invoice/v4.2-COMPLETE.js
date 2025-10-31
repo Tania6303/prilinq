@@ -214,52 +214,23 @@ function processInvoiceComplete(input) {
         return {
             status: "success",
 
-            // 1. זיהוי ספק
-            supplier_identification: {
-                supplier_code: input.learned_config.supplier_id,
-                supplier_name: input.learned_config.supplier_name,
-                identification_method: "vendor_tax_id",
-                confidence: "high"
-            },
-
-            // 2. JSON לפריוריטי (הפלט העיקרי)
+            // 1. JSON לפריוריטי (הפלט העיקרי)
             invoice_data: {
                 PINVOICES: [cleanedInvoice]
             },
 
-            // 3. הנחיות ל-LLM (פרומפט בשפה טבעית) - חדש!
+            // 2. הנחיות ל-LLM (פרומפט בשפה טבעית)
             llm_prompt: llmPrompt,
 
-            // 4. קונפיג טכני למערכת - חדש!
-            technical_config: technicalConfig,
-
-            // 5. בקרות תקינות
-            validation: validation,
-
-            // 6. ניתוח למידה (הנוכחי - נשאר לתאימות לאחור)
-            learning_analysis: learningAnalysis,
-
-            // 7. דוח ביצוע
-            execution_report: executionReport,
-
-            // 8. מטא-דאטה
-            metadata: {
-                ocr_invoice_id: ocrFields.InvoiceId || "",
-                ocr_invoice_date: ocrFields.InvoiceDate || "",
-                ocr_total_amount: ocrFields.InvoiceTotal || ocrFields.InvoiceTotal_amount || 0,
-                processing_timestamp: new Date().toISOString(),
-                version: "4.2"
-            }
+            // 3. קונפיג טכני למערכת
+            technical_config: technicalConfig
         };
 
     } catch (error) {
-        executionReport.errors.push(error.message);
-
         return {
             status: "error",
             error_type: error.name || "ProcessingError",
-            message: error.message,
-            execution_report: executionReport
+            message: error.message
         };
     }
 }
