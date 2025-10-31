@@ -2,17 +2,48 @@
 // קוד 2 - עיבוד חשבוניות (גרסה 4.0 - חילוץ רכבים מתקדם)
 // מקבל: OCR + הגדרות + תעודות + יבוא
 // מחזיר: JSON לפריוריטי + דוח ביצוע
-// 
+//
 // ✨ חדש בגרסה 4.0:
 // - חילוץ רכבים מתקדם לפי vehicle_processing_rules.search_locations
 // - תמיכה ב-VehicleNumbers (שדה חדש מ-Azure v3.0)
 // - תמיכה ב-Items[].VehicleNumber (קישור ישיר)
 // - יצירת פריטי רכבים אוטומטית
 // - מיפוי לחשבונות לפי vehicle_account_mapping
-// 
+//
 // ✨ מגרסה 3.0:
 // - תמיכה במבנה החדש של UnidentifiedNumbers (מערך אובייקטים)
 // - ניצול התוויות (label) וההקשר (context) לזיהוי חכם יותר
+// ============================================================================
+
+// ============================================================================
+// פונקציית עזר - ניקוי invoice לפני שליחה ל-Priority
+// ============================================================================
+
+function cleanInvoiceForPriority(invoice) {
+    // יצירת עותק עמוק כדי לא לשנות את המקור
+    const cleaned = JSON.parse(JSON.stringify(invoice));
+
+    // ניקוי שדות שלא צריכים מהפריטים
+    if (cleaned.PINVOICEITEMS_SUBFORM) {
+        cleaned.PINVOICEITEMS_SUBFORM = cleaned.PINVOICEITEMS_SUBFORM.map(item => {
+            // מחיקת שדות למידה
+            delete item.isNewVehicle;
+            delete item._learningNote;
+
+            // מחיקת SPECIALVATFLAG אם זה לא "Y"
+            if (item.SPECIALVATFLAG && item.SPECIALVATFLAG !== "Y") {
+                delete item.SPECIALVATFLAG;
+            }
+
+            return item;
+        });
+    }
+
+    return cleaned;
+}
+
+// ============================================================================
+// פונקציה ראשית
 // ============================================================================
 
 function processInvoiceComplete(input) {
@@ -157,9 +188,12 @@ function processInvoiceComplete(input) {
         const learningAnalysis = analyzeLearning(invoice, config);
         
         // ============================================================================
-        // שלב 7: החזרת תוצאה
+        // שלב 7: ניקוי והחזרת תוצאה
         // ============================================================================
-        
+
+        // ניקוי שדות שלא צריכים (למידה בלבד, לא ל-Priority)
+        const cleanedInvoice = cleanInvoiceForPriority(invoice);
+
         return {
             status: "success",
             supplier_identification: {
@@ -169,7 +203,7 @@ function processInvoiceComplete(input) {
                 confidence: "high"
             },
             invoice_data: {
-                PINVOICES: [invoice]
+                PINVOICES: [cleanedInvoice]
             },
             validation: validation,
             learning_analysis: learningAnalysis,
@@ -568,21 +602,30 @@ function extractVehiclesAdvanced(ocrFields, vehicleRules) {
             // 4. מספרים לא מזוהים
             const unidentified = ocrFields.UnidentifiedNumbers || [];
             const vehiclePattern = /\d{3}-\d{2}-\d{3}/;
-            
+
             unidentified.forEach(item => {
                 const value = typeof item === 'object' ? item.value : item;
                 const label = typeof item === 'object' ? (item.label || '') : '';
-                
-                // אם יש filter_by_label - רק עם התווית הזו
+                const context = typeof item === 'object' ? (item.context || '') : '';
+
+                // תיקון: גם אם יש תווית "רכב", חייב להתאים לדפוס מספר רכב!
+                // זה מונע טעויות של Azure OCR שמסמן מספר כרטיס בתור "מספר רכב"
+                const isValidVehicleNumber = vehiclePattern.test(value);
+
+                // בדיקה נוספת: אם בהקשר כתוב "כרטיס", זה לא רכב
+                const looksLikeCardNumber = context.includes('כרטיס') || label.includes('כרטיס');
+
+                // אם יש filter_by_label - רק עם התווית הזו וגם דפוס תקין
                 if (location.filter_by_label) {
                     if (label && label.includes(location.filter_by_label)) {
-                        if (!foundVehicles.includes(value)) {
+                        // תיקון: גם עם תווית רכב, חייב דפוס תקין ולא להיות מסומן ככרטיס
+                        if (isValidVehicleNumber && !looksLikeCardNumber && !foundVehicles.includes(value)) {
                             foundVehicles.push(value);
                         }
                     }
                 } else {
-                    // אחרת - לפי דפוס רכב
-                    if (vehiclePattern.test(value) && !foundVehicles.includes(value)) {
+                    // אחרת - לפי דפוס רכב בלבד
+                    if (isValidVehicleNumber && !looksLikeCardNumber && !foundVehicles.includes(value)) {
                         foundVehicles.push(value);
                     }
                 }
@@ -595,50 +638,56 @@ function extractVehiclesAdvanced(ocrFields, vehicleRules) {
 
 function createVehicleItems(vehicles, ocrItems, vehicleRules, ocrFields) {
     if (!vehicles || vehicles.length === 0) return [];
-    
+
     const vehicleItems = [];
-    
+
+    // תיקון: מחיר = סכום כל החשבונית (לפני מע"מ)
+    // חישוב: InvoiceTotal - TotalTax = סה"כ לפני מע"מ (עבודות + חלקים)
+    const totalPrice = ocrFields.TotalTax_amount
+        ? (ocrFields.InvoiceTotal_amount || 0) - ocrFields.TotalTax_amount
+        : (ocrFields.SubTotal_amount || ocrFields.InvoiceTotal_amount || 0);
+    const pricePerVehicle = vehicles.length > 0 ? totalPrice / vehicles.length : totalPrice;
+
     vehicles.forEach(vehicleNum => {
         // חיפוש מיפוי בחוקים
         const mapping = vehicleRules.vehicle_account_mapping?.[vehicleNum];
-        
+
         // חיפוש תיאור מהפריטים של OCR
-        const relatedItem = ocrItems.find(item => 
+        const relatedItem = ocrItems.find(item =>
             (item.VehicleNumber && item.VehicleNumber === vehicleNum) ||
             (item.Description && item.Description.includes(vehicleNum))
         );
-        
+
         // תיקון: תיאור קצר בלבד
         const shortDesc = extractShortDescription(ocrFields, vehicleNum);
-
-        // תיקון: מחיר = סכום כל החשבונית (לפני מע"מ)
-        // חישוב: InvoiceTotal - TotalTax = סה"כ לפני מע"מ (עבודות + חלקים)
-        const totalPrice = ocrFields.TotalTax_amount
-            ? (ocrFields.InvoiceTotal_amount || 0) - ocrFields.TotalTax_amount
-            : (ocrFields.SubTotal_amount || ocrFields.InvoiceTotal_amount || 0);
         
-        // בניית פריט
+        // בניית פריט - רק שדות שPriority מכיר!
         const item = {
             PARTNAME: vehicleRules.output_format?.partname || "car",
-            PDES: shortDesc,  // תיקון!
+            PDES: shortDesc,
             TQUANT: relatedItem?.Quantity || 1,
             TUNITNAME: relatedItem?.Unit || "יח'",
-            PRICE: totalPrice,  // תיקון!
-            VATFLAG: mapping?.vat_pattern?.VATFLAG || "Y",  // תיקון!
-            ACCNAME: mapping?.accname || vehicleRules.default_values?.accname || "",
-            isNewVehicle: !mapping  // סימון לשלב למידה
+            PRICE: pricePerVehicle,
+            VATFLAG: mapping?.vat_pattern?.VATFLAG || "Y",
+            ACCNAME: mapping?.accname || vehicleRules.default_values?.accname || ""
         };
-        
-        // BUDCODE אם יש
+
+        // BUDCODE - חובה לפי התבנית!
         if (mapping?.budcode) {
             item.BUDCODE = mapping.budcode;
         } else if (vehicleRules.default_values?.budcode) {
             item.BUDCODE = vehicleRules.default_values.budcode;
         }
-        
-        // SPECIALVATFLAG אם יש
-        if (mapping?.vat_pattern?.SPECIALVATFLAG) {
-            item.SPECIALVATFLAG = mapping.vat_pattern.SPECIALVATFLAG;
+
+        // SPECIALVATFLAG - רק אם זה Y (לא שדות אחרים!)
+        if (mapping?.vat_pattern?.SPECIALVATFLAG === "Y") {
+            item.SPECIALVATFLAG = "Y";
+        }
+
+        // שמור מידע למידה בנפרד (לא נשלח ל-Priority!)
+        if (!mapping) {
+            // רק לצרכי דיווח ולמידה - לא ישלח ב-JSON הסופי
+            item._learningNote = "רכב חדש - נדרש מיפוי";
         }
         
         vehicleItems.push(item);
@@ -654,30 +703,60 @@ function createVehicleItems(vehicles, ocrItems, vehicleRules, ocrFields) {
 function extractShortDescription(ocrFields, vehicleNum) {
     // חיפוש תיאור קצר מהפריטים
     if (ocrFields.Items && ocrFields.Items.length > 0) {
-        // חפש פריט שמכיל את מספר הרכב או תיאור רלוונטי
-        const item = ocrFields.Items.find(i => 
+        // חפש פריט שמכיל תיאור רלוונטי
+        const item = ocrFields.Items.find(i =>
             i.Description && (
                 i.Description.includes(vehicleNum) ||
                 i.Description.includes('טיפול') ||
                 i.Description.includes('עבודה')
             )
         );
-        
+
         if (item && item.Description) {
-            // קח את 3-4 המילים הראשונות (עד 50 תווים)
             const desc = item.Description.trim();
+
+            // תיקון חדש: חפש דפוס "טיפול XXX ק\"מ" או "טיפול XXX,XXX ק\"מ"
+            // דפוס: "טיפול" + מספר (עם או בלי פסיק) + "ק\"מ" או "קמ"
+            const servicePattern = /טיפול\s+[\d,]+\s*ק[״"]?מ/i;
+            const match = desc.match(servicePattern);
+
+            if (match) {
+                // נמצא דפוס טיפול - נקה אותו ונחזיר
+                let serviceDesc = match[0];
+                // המר "קמ" ל-"ק\"מ" והסר פסיקים מהמספר
+                serviceDesc = serviceDesc
+                    .replace(/,/g, '')          // הסר פסיקים
+                    .replace(/קמ/g, 'ק\"מ')     // תקנן את "קמ" ל-"ק\"מ"
+                    .replace(/ק״מ/g, 'ק\"מ');  // תקנן את ״ ל-\"
+
+                return serviceDesc;
+            }
+
+            // אם לא נמצא דפוס טיפול - חפש תיאורים אחרים (החלפה, תיקון, בדיקה)
+            const generalPattern = /(החלפת|תיקון|בדיקת|הח[''׳])\s+[\u0590-\u05FF\s]+/;
+            const generalMatch = desc.match(generalPattern);
+
+            if (generalMatch) {
+                // קח עד 50 תווים מהתיאור
+                let shortDesc = generalMatch[0].trim();
+                if (shortDesc.length > 50) {
+                    shortDesc = shortDesc.substring(0, 47) + '...';
+                }
+                return shortDesc;
+            }
+
+            // אם אין דפוס מיוחד - קח את 3-4 המילים הראשונות
             const words = desc.split(/\s+/);
             let shortDesc = words.slice(0, 4).join(' ');
-            
-            // אם ארוך מדי - קצץ ל-50 תווים
+
             if (shortDesc.length > 50) {
                 shortDesc = shortDesc.substring(0, 47) + '...';
             }
-            
+
             return shortDesc;
         }
     }
-    
+
     // אם לא מצאנו תיאור - החזר ברירת מחדל
     return 'טיפול';
 }
@@ -705,11 +784,40 @@ function buildInvoiceFromTemplate(template, structure, config, searchResults, le
     
     // תיקון: DETAILS - יצירה חכמה לפי רכבים
     if (searchResults.vehicles && searchResults.vehicles.length > 0) {
-        // אם יש רכבים - בנה DETAILS עם מספר רכב + לקוח
+        // אם יש רכבים - בנה DETAILS עם תיאור טיפול + ק"מ נוכחי
         const vehicleNum = searchResults.vehicles[0];
-        const customerId = ocrFields.CustomerId || '';
         const shortDesc = extractShortDescription(ocrFields, vehicleNum);
-        invoice.DETAILS = customerId ? `${shortDesc}-${customerId}` : shortDesc;
+
+        // חיפוש ק"מ נוכחי מה-UnidentifiedNumbers או CustomerId
+        let currentMileage = '';
+
+        // נסה למצוא ק"מ ב-UnidentifiedNumbers
+        const unidentified = ocrFields.UnidentifiedNumbers || [];
+        if (unidentified.length > 0) {
+            const mileageItem = unidentified.find(item => {
+                if (typeof item === 'object') {
+                    const label = item.label || '';
+                    const value = item.value || '';
+                    // חפש תווית "ק\"מ" או מספר בין 50000-300000 (טווח סביר לק"מ)
+                    if (label.includes('ק') || label.includes('קמ') || label.includes('מ')) {
+                        return /^\d{5,6}$/.test(value);
+                    }
+                }
+                return false;
+            });
+
+            if (mileageItem && typeof mileageItem === 'object') {
+                currentMileage = mileageItem.value;
+            }
+        }
+
+        // אם לא נמצא, נסה CustomerId (לפעמים Azure מזהה את ק"מ כ-CustomerId)
+        if (!currentMileage && ocrFields.CustomerId && /^\d{5,6}$/.test(ocrFields.CustomerId)) {
+            currentMileage = ocrFields.CustomerId;
+        }
+
+        // בנה DETAILS לפי הפורמט: "תיאור טיפול-XXXXXק\"מ"
+        invoice.DETAILS = currentMileage ? `${shortDesc}-${currentMileage}` : shortDesc;
     } else if (searchResults.details) {
         // אחרת - השתמש ב-DETAILS הרגיל
         invoice.DETAILS = searchResults.details;

@@ -641,8 +641,11 @@ function createVehicleItems(vehicles, ocrItems, vehicleRules, ocrFields) {
 
     const vehicleItems = [];
 
-    // תיקון חדש: חשב מחיר לרכב אחד - חלוקה שווה בין כל הרכבים
-    const totalPrice = ocrFields.SubTotal_amount || ocrFields.InvoiceTotal_amount || 0;
+    // תיקון: מחיר = סכום כל החשבונית (לפני מע"מ)
+    // חישוב: InvoiceTotal - TotalTax = סה"כ לפני מע"מ (עבודות + חלקים)
+    const totalPrice = ocrFields.TotalTax_amount
+        ? (ocrFields.InvoiceTotal_amount || 0) - ocrFields.TotalTax_amount
+        : (ocrFields.SubTotal_amount || ocrFields.InvoiceTotal_amount || 0);
     const pricePerVehicle = vehicles.length > 0 ? totalPrice / vehicles.length : totalPrice;
 
     vehicles.forEach(vehicleNum => {
