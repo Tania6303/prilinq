@@ -1,0 +1,130 @@
+// ========================================
+// מנקה JSON + יוצר סיכום חשבוניות
+// ========================================
+
+// קריאת קלט
+let invoicesJson = input.invoices_json;
+
+// המרה למערך אם נדרש
+let invoices = [];
+try {
+  if (typeof invoicesJson === 'string') {
+    invoices = JSON.parse(invoicesJson);
+  } else if (Buffer.isBuffer(invoicesJson)) {
+    invoices = JSON.parse(invoicesJson.toString('utf8'));
+  } else if (Array.isArray(invoicesJson)) {
+    invoices = invoicesJson;
+  } else if (typeof invoicesJson === 'object') {
+    invoices = [invoicesJson];
+  } else {
+    throw new Error('פורמט קלט לא תקין');
+  }
+} catch (err) {
+  return {
+    status: 'error',
+    message: 'שגיאה בקריאת הקלט: ' + err.message
+  };
+}
+
+// ========================================
+// פונקציה: בדיקה אם ערך ריק
+// ========================================
+function isEmpty(value) {
+  if (value === null || value === undefined) {
+    return true;
+  }
+  if (value === '') {
+    return true;
+  }
+  if (value === 0) {
+    return true;
+  }
+  if (Array.isArray(value) && value.length === 0) {
+    return true;
+  }
+  return false;
+}
+
+// ========================================
+// פונקציה: ניקוי אובייקט רקורסיבית
+// ========================================
+function cleanObject(obj) {
+  if (isEmpty(obj)) {
+    return null;
+  }
+  
+  if (Array.isArray(obj)) {
+    const cleaned = obj
+      .map(item => cleanObject(item))
+      .filter(item => item !== null);
+    return cleaned.length > 0 ? cleaned : null;
+  }
+  
+  if (typeof obj === 'object') {
+    const cleaned = {};
+    
+    for (const key in obj) {
+      if (obj.hasOwnProperty(key)) {
+        const value = obj[key];
+        
+        if (!isEmpty(value)) {
+          const cleanedValue = cleanObject(value);
+          
+          if (cleanedValue !== null) {
+            cleaned[key] = cleanedValue;
+          }
+        }
+      }
+    }
+    
+    return Object.keys(cleaned).length > 0 ? cleaned : null;
+  }
+  
+  return obj;
+}
+
+// ========================================
+// ניקוי כל החשבוניות
+// ========================================
+let cleanedInvoices = [];
+
+try {
+  cleanedInvoices = invoices
+    .map(invoice => cleanObject(invoice))
+    .filter(invoice => invoice !== null);
+} catch (err) {
+  return {
+    status: 'error',
+    message: 'שגיאה בניקוי: ' + err.message
+  };
+}
+
+// ========================================
+// יצירת סיכום חשבוניות
+// ========================================
+let invoicesSummary = [];
+
+try {
+  invoicesSummary = cleanedInvoices.map(invoice => ({
+    SUPNAME: invoice.SUPNAME || '',
+    IVNUM: invoice.IVNUM || '',
+    BOOKNUM: invoice.BOOKNUM || '',
+    DEBIT: invoice.DEBIT || ''
+  }));
+} catch (err) {
+  return {
+    status: 'error',
+    message: 'שגיאה ביצירת סיכום: ' + err.message
+  };
+}
+
+// ========================================
+// החזרת תוצאה
+// ========================================
+return {
+  status: 'success',
+  original_count: invoices.length,
+  cleaned_count: cleanedInvoices.length,
+  cleaned_json: cleanedInvoices,
+  invoices_summary: invoicesSummary
+};
