@@ -1,0 +1,142 @@
+{
+  "comment": "JSON צפוי לספק 2511 - חשבונית עם תעודות",
+  "scenario": "ספק 2511 - יש תעודות, אין פירוט פריטים",
+
+  "data_sources": {
+    "from_OCR_UnidentifiedNumbers": [
+      "108379736",
+      "108379734",
+      "108367753",
+      "108367755"
+    ],
+    "from_docs_list": [
+      {
+        "DOCNO": "25026831",
+        "BOOKNUM": "108367755",
+        "TOTQUANT": 120
+      },
+      {
+        "DOCNO": "25026832",
+        "BOOKNUM": "108367753",
+        "TOTQUANT": 448
+      },
+      {
+        "DOCNO": "25026849",
+        "BOOKNUM": "108379736",
+        "TOTQUANT": 40
+      },
+      {
+        "DOCNO": "25026850",
+        "BOOKNUM": "108379734",
+        "TOTQUANT": 600
+      }
+    ]
+  },
+
+  "expected_JSON_output": {
+    "PINVOICES": [
+      {
+        "SUPNAME": "2511",
+        "CODE": "I",
+        "DEBIT": "D",
+        "IVDATE": "28/10/25",
+        "BOOKNUM": "60000013",
+        "DETAILS": "פלסאון - חשבונית עם תעודות",
+
+        "PIVDOC_SUBFORM": [
+          {
+            "DOCNO": "25026849",
+            "BOOKNUM": "108379736"
+          },
+          {
+            "DOCNO": "25026850",
+            "BOOKNUM": "108379734"
+          },
+          {
+            "DOCNO": "25026832",
+            "BOOKNUM": "108367753"
+          },
+          {
+            "DOCNO": "25026831",
+            "BOOKNUM": "108367755"
+          }
+        ]
+      }
+    ]
+  },
+
+  "logic_flow": {
+    "step_1": "AzureInvoiceProcessor מזהה BOOKNUM ב-OCR (108379736, 108379734, 108367753, 108367755)",
+    "step_2": "v4.2-COMPLETE.js מקבל את UnidentifiedNumbers עם 4 BOOKNUM",
+    "step_3": "searchDocuments() מחפש התאמה בין UnidentifiedNumbers ל-docs_list",
+    "step_4": "מצא 4 התאמות - לכל BOOKNUM יש DOCNO מתאים ב-docs_list",
+    "step_5": "יוצר PIVDOC_SUBFORM עם 4 תעודות (כל תעודה = DOCNO + BOOKNUM)",
+    "step_6": "לא יוצר PINVOICEITEMS_SUBFORM כי יש תעודות ולא צריך פירוט"
+  },
+
+  "what_if_scenarios": {
+    "scenario_A_all_found": {
+      "description": "כל 4 ה-BOOKNUM נמצאו ב-docs_list",
+      "result": "JSON מושלם עם 4 תעודות ב-PIVDOC_SUBFORM"
+    },
+
+    "scenario_B_partial_found": {
+      "description": "רק 2 BOOKNUM נמצאו ב-docs_list",
+      "result": "JSON חלקי עם 2 תעודות + דוח שגיאה: 'נמצאו 2/4 תעודות בלבד'",
+      "PIVDOC_SUBFORM": [
+        {"DOCNO": "25026849", "BOOKNUM": "108379736"},
+        {"DOCNO": "25026850", "BOOKNUM": "108379734"}
+      ],
+      "execution_report": {
+        "warnings": ["נמצאו רק 2 מתוך 4 תעודות מה-OCR"],
+        "not_found": ["108367753", "108367755"]
+      }
+    },
+
+    "scenario_C_none_found": {
+      "description": "אף BOOKNUM לא נמצא ב-UnidentifiedNumbers",
+      "result": "JSON חלקי ללא PIVDOC_SUBFORM + דוח שגיאה חמור",
+      "PIVDOC_SUBFORM": [],
+      "execution_report": {
+        "errors": ["תבנית דורשת תעודות אך לא נמצאו ב-OCR"],
+        "recommendation": "בדוק את איכות ה-OCR או עדכן docs_list"
+      }
+    }
+  },
+
+  "technical_config_output": {
+    "comment": "פלט נוסף שיווצר - הנחיות טכניות למערכת",
+    "extraction_rules": {
+      "documents": {
+        "search_in": [
+          {
+            "location": "AZURE_RESULT.data.fields.UnidentifiedNumbers",
+            "pattern": "108\\d{6}",
+            "label_filter": "מס׳ הקצאה (BOOKNUM)",
+            "priority": 1
+          },
+          {
+            "location": "AZURE_TEXT",
+            "pattern": "108\\d{6}",
+            "fallback": true,
+            "priority": 2,
+            "description": "חיפוש fallback אם לא נמצא ב-UnidentifiedNumbers"
+          }
+        ],
+        "matching": {
+          "match_field": "BOOKNUM",
+          "lookup_source": "docs_list",
+          "output_fields": ["DOCNO", "BOOKNUM"]
+        }
+      }
+    }
+  },
+
+  "processing_scenario_output": {
+    "comment": "פלט נוסף - מה MAKE צריך לשלוף מהמערכת",
+    "check_docs": true,
+    "check_import": false,
+    "check_vehicles": false,
+    "instructions": "שלוף רשימת תעודות מ-Priority עבור ספק 2511"
+  }
+}
