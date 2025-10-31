@@ -1,0 +1,37 @@
+{
+  "PINVOICES": [
+    {
+      "SUPNAME": "3979",
+      "CODE": "ש\"ח",
+      "DEBIT": "D",
+      "IVDATE": "10/09/25",
+      "BOOKNUM": "1015938",
+      "DETAILS": "",
+      "PINVOICEITEMS_SUBFORM": [
+        {
+          "PARTNAME": "car",
+          "PDES": "",
+          "TQUANT": 1,
+          "TUNITNAME": "יח'",
+          "PRICE": 142.59866666666667,
+          "VATFLAG": "Y",
+          "ACCNAME": "66961"
+        },
+        {
+          "PARTNAME": "car",
+          "PDES": "",
+          "TQUANT": 1,
+          "TUNITNAME": "יח'",
+          "PRICE": 142.59866666666667,
+          "VATFLAG": "Y",
+          "ACCNAME": "66961"
+        }
+      ],
+      "PINVOICESCONT_SUBFORM": [
+        {
+          "FNCPATNAME": "2323"
+        }
+      ]
+    }
+  ]
+}
