@@ -1,0 +1,804 @@
+// ================================================================
+// Azure Invoice Processor v2.0 - Make Compatible
+// תאריך: 30 אוקטובר 2025
+// ================================================================
+
+const azureJsonInput = input.azureJsonInput;
+
+function processAzureInvoice(azureInput) {
+    const analyzeResult = loadAnalyzeResult(azureInput);
+    
+    const rawContent = analyzeResult.content || '';
+    const tables = analyzeResult.tables || [];
+    const documents = analyzeResult.documents || [];
+    
+    const result = {
+        docType: 'invoice',
+        fields: {}
+    };
+    
+    if (documents.length > 0 && documents[0].fields) {
+        extractAzureFields(documents[0].fields, result.fields);
+    }
+    
+    const itemsData = extractRealItemsFromTable(tables, result.fields.Items);
+    if (itemsData.length > 0) {
+        result.fields.Items = itemsData;
+    }
+    
+    const detectedNumbers = detectNumbersByContext(rawContent, result.fields);
+    Object.assign(result.fields, detectedNumbers);
+    
+    // ✨ חדש! זיהוי דינמי של מידע ייחודי
+    const uniqueData = extractUniqueData(rawContent, result.fields);
+    if (uniqueData.length > 0) {
+        result.fields.UnidentifiedNumbers = uniqueData;
+    }
+    
+    const structure = buildStructure(result.fields);
+    const data = buildData(result);
+    
+    return {
+        structure: structure,
+        data: data,
+        metadata: {
+            modelId: analyzeResult.modelId,
+            totalFields: Object.keys(result.fields).length,
+            uniqueDataFound: uniqueData.length
+        }
+    };
+}
+
+function loadAnalyzeResult(input) {
+    if (Array.isArray(input) && input[0] && input[0].analyzeResult) {
+        return input[0].analyzeResult;
+    }
+    if (input.analyzeResult) {
+        return input.analyzeResult;
+    }
+    if (input.content || input.tables) {
+        return input;
+    }
+    throw new Error('Invalid input format');
+}
+
+function extractAzureFields(fields, target) {
+    for (const fieldName in fields) {
+        const fieldData = fields[fieldName];
+        if (!fieldData) continue;
+        
+        const type = fieldData.type;
+        
+        if (type === 'string') {
+            target[fieldName] = fieldData.valueString || fieldData.content;
+        }
+        else if (type === 'date') {
+            target[fieldName] = fieldData.valueDate || fieldData.content;
+        }
+        else if (type === 'number') {
+            target[fieldName] = fieldData.valueNumber;
+        }
+        else if (type === 'currency') {
+            if (fieldData.valueCurrency) {
+                target[fieldName + '_amount'] = fieldData.valueCurrency.amount;
+                target[fieldName + '_currency'] = fieldData.valueCurrency.currencyCode;
+            }
+        }
+        else if (type === 'address') {
+            target[fieldName] = fieldData.content;
+            if (fieldData.valueAddress) {
+                for (const key in fieldData.valueAddress) {
+                    const value = fieldData.valueAddress[key];
+                    if (value) {
+                        target[fieldName + '_' + key] = value;
+                    }
+                }
+            }
+        }
+        else if (type === 'array') {
+            if (fieldName === 'Items' && fieldData.valueArray) {
+                target.Items = [];
+                for (let i = 0; i < fieldData.valueArray.length; i++) {
+                    const item = fieldData.valueArray[i];
+                    if (item.valueObject) {
+                        const itemData = {};
+                        for (const key in item.valueObject) {
+                            const val = item.valueObject[key];
+                            if (val.type === 'currency' && val.valueCurrency) {
+                                itemData[key + '_amount'] = val.valueCurrency.amount;
+                                itemData[key + '_currency'] = val.valueCurrency.currencyCode;
+                            }
+                            else if (val.type === 'number') {
+                                itemData[key] = val.valueNumber;
+                            }
+                            else {
+                                itemData[key] = val.valueString || val.content;
+                            }
+                        }
+                        target.Items.push(itemData);
+                    }
+                }
+            }
+            else if (fieldName === 'PaymentDetails' && fieldData.valueArray) {
+                for (let i = 0; i < fieldData.valueArray.length; i++) {
+                    const payment = fieldData.valueArray[i];
+                    if (payment.valueObject) {
+                        for (const key in payment.valueObject) {
+                            const val = payment.valueObject[key];
+                            target['PaymentDetails_' + key] = val.valueString || val.content;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+function extractRealItemsFromTable(tables, azureItems) {
+    if (azureItems && azureItems.length > 0) {
+        return azureItems;
+    }
+    
+    if (!tables || tables.length === 0) {
+        return [];
+    }
+    
+    let mainTable = {};
+    let maxCells = 0;
+    
+    for (let i = 0; i < tables.length; i++) {
+        const table = tables[i];
+        if (table.cells && table.cells.length > maxCells) {
+            mainTable = table;
+            maxCells = table.cells.length;
+        }
+    }
+    
+    if (!mainTable.cells) {
+        return [];
+    }
+    
+    const headers = [];
+    const dataCells = [];
+    
+    for (let i = 0; i < mainTable.cells.length; i++) {
+        const cell = mainTable.cells[i];
+        if (cell.kind === 'columnHeader') {
+            headers.push(cell);
+        } else {
+            dataCells.push(cell);
+        }
+    }
+    
+    const columnMap = {};
+    for (let i = 0; i < headers.length; i++) {
+        const header = headers[i];
+        columnMap[header.columnIndex] = {
+            content: header.content,
+            fieldName: guessFieldNameGeneric(header.content, header.columnIndex)
+        };
+    }
+    
+    const rowsData = {};
+    for (let i = 0; i < dataCells.length; i++) {
+        const cell = dataCells[i];
+        const rowIdx = cell.rowIndex;
+        
+        if (!rowsData[rowIdx]) {
+            rowsData[rowIdx] = {};
+        }
+        
+        const colInfo = columnMap[cell.columnIndex];
+        if (colInfo && cell.content && cell.content.trim()) {
+            rowsData[rowIdx][colInfo.fieldName] = parseValue(cell.content);
+        }
+    }
+    
+    const items = [];
+    for (const rowIdx in rowsData) {
+        const rowData = rowsData[rowIdx];
+        if (isRealItemRow(rowData)) {
+            items.push(rowData);
+        }
+    }
+    
+    return items;
+}
+
+function guessFieldNameGeneric(content, colIndex) {
+    if (!content || content.trim() === '') {
+        return 'Col' + colIndex;
+    }
+    
+    const text = content.toLowerCase();
+    
+    if (content === '=' || text.indexOf('total') >= 0 || text.indexOf('amount') >= 0 || 
+        text.indexOf('סכום') >= 0 || text.indexOf('סה') >= 0) return 'Amount';
+    if (content === '%' || text.indexOf('discount') >= 0 || text.indexOf('הנח') >= 0) return 'Discount';
+    if (text.indexOf('qty') >= 0 || text.indexOf('quantity') >= 0 || text.indexOf('כמות') >= 0) return 'Quantity';
+    if (text.indexOf('price') >= 0 || text.indexOf('מחיר') >= 0) return 'UnitPrice';
+    if (text.indexOf('code') >= 0 || text.indexOf('sku') >= 0 || text.indexOf('item') >= 0 || 
+        text.indexOf('מק') >= 0 || text.indexOf('פריט') >= 0) return 'ProductCode';
+    if (text.indexOf('desc') >= 0 || text.indexOf('name') >= 0 || 
+        text.indexOf('תאור') >= 0 || text.indexOf('שם') >= 0) return 'Description';
+    if (text.indexOf('unit') >= 0 || text.indexOf('יח') >= 0) return 'Unit';
+    
+    return 'Col' + colIndex;
+}
+
+function isRealItemRow(rowData) {
+    const keys = Object.keys(rowData);
+    
+    if (keys.length < 2) {
+        return false;
+    }
+    
+    const hasAmount = rowData.Amount !== undefined;
+    const hasProductCode = rowData.ProductCode !== undefined;
+    const hasDescription = rowData.Description !== undefined;
+    
+    if (!hasAmount && !hasProductCode && !hasDescription) {
+        return false;
+    }
+    
+    if (hasAmount && keys.length === 1) {
+        return false;
+    }
+    
+    if (hasAmount) {
+        const amount = rowData.Amount;
+        if (typeof amount === 'number' && amount > 0) {
+            return true;
+        }
+    }
+    
+    if (hasProductCode) {
+        const code = rowData.ProductCode;
+        if (typeof code === 'number' || (typeof code === 'string' && code.length > 0)) {
+            return true;
+        }
+    }
+    
+    return true;
+}
+
+function parseValue(value) {
+    if (typeof value !== 'string') return value;
+    
+    const cleaned = value.replace(/,/g, '').trim();
+    const numPattern = new RegExp('^[0-9]+\\.?[0-9]*$');
+    
+    if (numPattern.test(cleaned)) {
+        const num = parseFloat(cleaned);
+        if (!isNaN(num)) {
+            return num;
+        }
+    }
+    
+    return value;
+}
+
+function detectNumbersByContext(content, existingFields) {
+    const detected = {};
+    
+    if (!content) return detected;
+    
+    detectVendorAdditionalId(content, existingFields, detected);
+    detectPhoneNumbers(content, existingFields, detected);
+    detectTimes(content, existingFields, detected);
+    detectDates(content, existingFields, detected);
+    detectBankDetails(content, existingFields, detected);
+    detectEmails(content, existingFields, detected);
+    
+    return detected;
+}
+
+function detectVendorAdditionalId(content, existing, detected) {
+    const companyIdx = content.indexOf('Company');
+    if (companyIdx === -1) return;
+    
+    const afterCompany = content.substring(companyIdx);
+    const numbers = findAllNumbers(afterCompany, 9, 10);
+    
+    if (numbers.length >= 2) {
+        const first = numbers[0];
+        const second = numbers[1];
+        
+        if (second !== first && 
+            second !== existing.VendorTaxId &&
+            second !== existing.CustomerTaxId) {
+            detected.VendorAdditionalId = second;
+        }
+    }
+}
+
+function detectPhoneNumbers(content, existing, detected) {
+    const phonePattern = new RegExp('[0-9]{2,3}[-\\s][0-9]{7,8}', 'g');
+    const matches = content.match(phonePattern) || [];
+    
+    const usedNumbers = [];
+    if (existing.VendorTaxId) usedNumbers.push(existing.VendorTaxId);
+    if (existing.CustomerTaxId) usedNumbers.push(existing.CustomerTaxId);
+    
+    const phones = [];
+    for (let i = 0; i < matches.length; i++) {
+        const phone = matches[i];
+        
+        if (phone.indexOf('\n') >= 0 || phone.indexOf('\r') >= 0) {
+            continue;
+        }
+        
+        const cleanPhone = phone.replace(/[-\s]/g, '');
+        
+        let isUsed = false;
+        for (let j = 0; j < usedNumbers.length; j++) {
+            if (usedNumbers[j] === cleanPhone) {
+                isUsed = true;
+                break;
+            }
+        }
+        
+        if (!isUsed) {
+            const position = content.indexOf(phone);
+            phones.push({
+                phone: phone,
+                position: position,
+                isVendor: position < content.length / 3
+            });
+        }
+    }
+    
+    const vendorPhones = [];
+    const customerPhones = [];
+    
+    for (let i = 0; i < phones.length; i++) {
+        if (phones[i].isVendor) {
+            vendorPhones.push(phones[i]);
+        } else {
+            customerPhones.push(phones[i]);
+        }
+    }
+    
+    if (vendorPhones.length > 0 && !existing.VendorTel) {
+        detected.VendorTel = vendorPhones[0].phone;
+    }
+    if (vendorPhones.length > 1 && !existing.VendorFax) {
+        detected.VendorFax = vendorPhones[1].phone;
+    }
+    if (customerPhones.length > 0 && !existing.CustomerTel) {
+        detected.CustomerTel = customerPhones[0].phone;
+    }
+    if (customerPhones.length > 1 && !existing.CustomerFax) {
+        detected.CustomerFax = customerPhones[1].phone;
+    }
+}
+
+function detectTimes(content, existing, detected) {
+    const timePattern = new RegExp('[0-9]{1,2}:[0-9]{2}(:[0-9]{2})?', 'g');
+    const matches = content.match(timePattern) || [];
+    
+    if (matches.length > 0 && !existing.InvoiceTime) {
+        detected.InvoiceTime = matches[0];
+    }
+    if (matches.length > 1 && !existing.PrintTime) {
+        detected.PrintTime = matches[matches.length - 1];
+    }
+}
+
+function detectDates(content, existing, detected) {
+    const dates = [];
+    
+    const pattern1 = new RegExp('[0-9]{1,2}[./][0-9]{1,2}[./][0-9]{4}', 'g');
+    const matches1 = content.match(pattern1) || [];
+    for (let i = 0; i < matches1.length; i++) {
+        const parsed = parseDateString(matches1[i]);
+        if (parsed) {
+            dates.push({
+                date: parsed,
+                position: content.indexOf(matches1[i])
+            });
+        }
+    }
+    
+    dates.sort(function(a, b) { return a.position - b.position; });
+    
+    if (dates.length > 0 && !existing.InvoiceDate) {
+        detected.InvoiceDate = dates[0].date;
+    }
+    if (dates.length > 1 && !existing.DueDate) {
+        detected.DueDate = dates[dates.length - 1].date;
+    }
+}
+
+function parseDateString(dateStr) {
+    const parts1 = dateStr.match(/([0-9]{1,2})[./]([0-9]{1,2})[./]([0-9]{4})/);
+    if (parts1) {
+        const day = parts1[1].length === 1 ? '0' + parts1[1] : parts1[1];
+        const month = parts1[2].length === 1 ? '0' + parts1[2] : parts1[2];
+        return parts1[3] + '-' + month + '-' + day;
+    }
+    
+    return null;
+}
+
+function detectBankDetails(content, existing, detected) {
+    if (!existing.PaymentDetails_IBAN) {
+        const ibanIdx = content.indexOf('IBAN');
+        if (ibanIdx >= 0) {
+            const afterIban = content.substring(ibanIdx);
+            const ibanPattern = new RegExp('IL[0-9]{21}');
+            const match = afterIban.match(ibanPattern);
+            if (match) {
+                detected.PaymentDetails_IBAN = match[0];
+                
+                const accountNum = match[0].substring(match[0].length - 6);
+                if (!existing.PaymentDetails_AccountNumber) {
+                    detected.PaymentDetails_AccountNumber = accountNum;
+                }
+            }
+        }
+    }
+    
+    if (!existing.PaymentDetails_SWIFT) {
+        const swiftIdx = content.indexOf('SWIFT');
+        if (swiftIdx >= 0) {
+            const afterSwift = content.substring(swiftIdx);
+            const swiftPattern = new RegExp('[A-Z0-9]{8,11}');
+            const match = afterSwift.match(swiftPattern);
+            if (match) {
+                detected.PaymentDetails_SWIFT = match[0];
+            }
+        }
+    }
+}
+
+function detectEmails(content, existing, detected) {
+    const emailPattern = new RegExp('[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}', 'g');
+    const matches = content.match(emailPattern) || [];
+    
+    for (let i = 0; i < matches.length; i++) {
+        const email = matches[i];
+        const position = content.indexOf(email);
+        const isVendor = position < content.length / 3;
+        
+        if (isVendor && !existing.VendorEmail && !detected.VendorEmail) {
+            detected.VendorEmail = email;
+        } else if (!isVendor && !existing.CustomerEmail && !detected.CustomerEmail) {
+            detected.CustomerEmail = email;
+        }
+    }
+}
+
+// ================================================================
+// ✨ חדש! זיהוי דינמי של מידע ייחודי
+// ================================================================
+
+function extractUniqueData(content, existingFields) {
+    const uniqueData = [];
+    
+    // 1. זיהוי תבניות "כותרת: ערך"
+    const labelValuePairs = extractLabelValuePairs(content, existingFields);
+    for (let i = 0; i < labelValuePairs.length; i++) {
+        uniqueData.push(labelValuePairs[i]);
+    }
+    
+    // 2. זיהוי קודי חלקים/מוצרים
+    const partCodes = extractPartCodes(content, existingFields);
+    for (let i = 0; i < partCodes.length; i++) {
+        uniqueData.push(partCodes[i]);
+    }
+    
+    // 3. זיהוי מספרי רכב
+    const vehicleNumbers = extractVehicleNumbers(content, existingFields);
+    for (let i = 0; i < vehicleNumbers.length; i++) {
+        uniqueData.push(vehicleNumbers[i]);
+    }
+    
+    // 4. זיהוי מספרים ייחודיים באורכים מיוחדים
+    const specialNumbers = extractSpecialLengthNumbers(content, existingFields);
+    for (let i = 0; i < specialNumbers.length; i++) {
+        uniqueData.push(specialNumbers[i]);
+    }
+    
+    return uniqueData;
+}
+
+function extractLabelValuePairs(content, existing) {
+    const pairs = [];
+    const lines = content.split('\n');
+    
+    // דפוסים נפוצים: "כותרת: ערך" או "כותרת ערך" עם רווח
+    const patterns = [
+        /^([א-תA-Za-z\s\.]+):\s*([^\n]+)$/,           // כותרת: ערך
+        /^([א-תA-Za-z\s\.]{2,20})\s{2,}([^\n]+)$/    // כותרת    ערך (2+ רווחים)
+    ];
+    
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line || line.length < 5) continue;
+        
+        for (let p = 0; p < patterns.length; p++) {
+            const match = line.match(patterns[p]);
+            if (match) {
+                const label = match[1].trim();
+                const value = match[2].trim();
+                
+                // בדוק שהערך לא קיים כבר
+                if (!isValueExists(value, existing) && !isCommonLabel(label)) {
+                    pairs.push({
+                        label: label,
+                        value: value
+                    });
+                }
+                break;
+            }
+        }
+    }
+    
+    return pairs;
+}
+
+function extractPartCodes(content, existing) {
+    const codes = [];
+    
+    // דפוסים נפוצים לקודי חלקים:
+    // TOY-XXXXXX, ABC-123456, XXX-XXXXXX
+    const patterns = [
+        /([A-Z]{2,4}-[A-Z0-9]{5,})/g,     // ABC-12345
+        /([A-Z]{3}\d{5,})/g,               // ABC12345
+        /([A-Z]\d{5,})/g                   // A12345
+    ];
+    
+    for (let p = 0; p < patterns.length; p++) {
+        const matches = content.match(patterns[p]) || [];
+        for (let i = 0; i < matches.length; i++) {
+            const code = matches[i];
+            if (!isValueExists(code, existing) && !codeAlreadyFound(code, codes)) {
+                // מצא את ההקשר (השורה שבה נמצא)
+                const context = findContext(content, code);
+                codes.push({
+                    label: 'קוד חלק',
+                    value: code,
+                    context: context
+                });
+            }
+        }
+    }
+    
+    return codes;
+}
+
+function extractVehicleNumbers(content, existing) {
+    const vehicles = [];
+    
+    // תבניות מספר רכב:
+    // XXX-XX-XXX (ישראל)
+    // XXXXXXX (7 ספרות)
+    const patterns = [
+        /\b(\d{2,3}-\d{2}-\d{3})\b/g,      // 123-45-678
+        /\b(\d{7,8})\b/g                    // 1234567
+    ];
+    
+    for (let p = 0; p < patterns.length; p++) {
+        const matches = content.match(patterns[p]) || [];
+        for (let i = 0; i < matches.length && vehicles.length < 5; i++) {
+            const number = matches[i];
+            
+            // בדוק אם זה לא טלפון או תז
+            if (number.indexOf('-') === -1 && (number.length === 9 || number.length === 10)) {
+                continue;
+            }
+            
+            if (!isValueExists(number, existing) && !codeAlreadyFound(number, vehicles)) {
+                const context = findContext(content, number);
+                
+                // נסה לזהות אם זה באמת רכב לפי ההקשר
+                if (context.indexOf('רכב') >= 0 || context.indexOf('כרטיס') >= 0 || 
+                    context.indexOf('vehicle') >= 0 || context.indexOf('car') >= 0) {
+                    vehicles.push({
+                        label: 'מספר רכב',
+                        value: number,
+                        context: context
+                    });
+                }
+            }
+        }
+    }
+    
+    return vehicles;
+}
+
+function extractSpecialLengthNumbers(content, existing) {
+    const numbers = [];
+    
+    // מספרים באורכים מיוחדים שעשויים להיות חשובים:
+    // 13 ספרות - מספר הקצאה/אסמכתא
+    // 17 תווים - VIN (כבר נתפס על ידי אז'ור, אבל נבדוק)
+    
+    const longNumbers = findAllNumbers(content, 13, 17);
+    
+    for (let i = 0; i < longNumbers.length && numbers.length < 10; i++) {
+        const num = longNumbers[i];
+        
+        if (!isValueExists(num, existing)) {
+            const context = findContext(content, num);
+            
+            let label = 'מספר ייחודי';
+            if (num.length === 13) label = 'מספר הקצאה/אסמכתא';
+            if (num.length === 17) label = 'מספר זיהוי (VIN)';
+            
+            numbers.push({
+                label: label,
+                value: num,
+                context: context
+            });
+        }
+    }
+    
+    return numbers;
+}
+
+function findContext(content, value) {
+    const index = content.indexOf(value);
+    if (index === -1) return '';
+    
+    // קח 30 תווים לפני ו-30 אחרי
+    const start = Math.max(0, index - 30);
+    const end = Math.min(content.length, index + value.length + 30);
+    
+    let context = content.substring(start, end);
+    
+    // נקה שורות חדשות מרובות
+    context = context.replace(/\n+/g, ' ').trim();
+    
+    return context;
+}
+
+function isValueExists(value, existing) {
+    // בדוק אם הערך קיים כבר בשדות קיימים
+    const valueStr = value.toString().toLowerCase();
+    
+    for (const key in existing) {
+        const fieldValue = existing[key];
+        
+        if (typeof fieldValue === 'string') {
+            if (fieldValue.toLowerCase().indexOf(valueStr) >= 0) {
+                return true;
+            }
+        } else if (typeof fieldValue === 'number') {
+            if (fieldValue.toString() === valueStr) {
+                return true;
+            }
+        } else if (Array.isArray(fieldValue)) {
+            for (let i = 0; i < fieldValue.length; i++) {
+                const item = fieldValue[i];
+                if (typeof item === 'string' && item.toLowerCase().indexOf(valueStr) >= 0) {
+                    return true;
+                }
+                if (typeof item === 'object') {
+                    if (isValueExists(value, item)) {
+                        return true;
+                    }
+                }
+            }
+        } else if (typeof fieldValue === 'object' && fieldValue !== null) {
+            if (isValueExists(value, fieldValue)) {
+                return true;
+            }
+        }
+    }
+    
+    return false;
+}
+
+function isCommonLabel(label) {
+    // רשימת כותרות נפוצות שלא מעניינות
+    const common = [
+        'total', 'sum', 'סך', 'סכום', 'page', 'עמוד',
+        'date', 'תאריך', 'amount', 'כמות', 'price', 'מחיר'
+    ];
+    
+    const labelLower = label.toLowerCase();
+    for (let i = 0; i < common.length; i++) {
+        if (labelLower.indexOf(common[i]) >= 0) {
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+function codeAlreadyFound(code, list) {
+    for (let i = 0; i < list.length; i++) {
+        if (list[i].value === code) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function findAllNumbers(text, minLen, maxLen) {
+    const numbers = [];
+    let currentNum = '';
+    
+    for (let i = 0; i < text.length; i++) {
+        const char = text[i];
+        if (char >= '0' && char <= '9') {
+            currentNum += char;
+        } else {
+            if (currentNum.length >= minLen && currentNum.length <= maxLen) {
+                numbers.push(currentNum);
+            }
+            currentNum = '';
+        }
+    }
+    
+    if (currentNum.length >= minLen && currentNum.length <= maxLen) {
+        numbers.push(currentNum);
+    }
+    
+    return numbers;
+}
+
+function buildStructure(fields) {
+    const structure = {
+        docType: "string",
+        fields: {}
+    };
+    
+    for (const fieldName in fields) {
+        const fieldValue = fields[fieldName];
+        if (fieldName === 'Items') {
+            structure.Items = buildItemsStructure(fieldValue);
+        }
+        else if (fieldName === 'UnidentifiedNumbers') {
+            structure.fields.UnidentifiedNumbers = ["object"];
+        }
+        else if (Array.isArray(fieldValue)) {
+            structure.fields[fieldName] = ["string"];
+        }
+        else {
+            structure.fields[fieldName] = getFieldType(fieldName, fieldValue);
+        }
+    }
+    
+    return structure;
+}
+
+function buildItemsStructure(items) {
+    if (!items || items.length === 0) {
+        return [];
+    }
+    
+    const itemStructure = {};
+    const firstItem = items[0];
+    
+    for (const fieldName in firstItem) {
+        itemStructure[fieldName] = getFieldType(fieldName, firstItem[fieldName]);
+    }
+    
+    return [itemStructure];
+}
+
+function getFieldType(fieldName, fieldValue) {
+    if (fieldName.indexOf('Date') >= 0) return "YYYY-MM-DD";
+    if (fieldName.indexOf('Time') >= 0) return "HH:MM:SS";
+    if (fieldName.indexOf('_amount') >= 0) return "number";
+    if (fieldName.indexOf('_currency') >= 0) return "string";
+    if (typeof fieldValue === 'number') return "number";
+    return "string";
+}
+
+function buildData(result) {
+    return {
+        docType: result.docType,
+        fields: result.fields
+    };
+}
+
+// הרץ את הפונקציה והחזר תוצאה
+const finalResult = processAzureInvoice(azureJsonInput);
+
+finalResult.status = 'success';
+
+return finalResult;
