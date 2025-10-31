@@ -1468,18 +1468,27 @@ function generateTechnicalConfig(config, ocrFields, searchResults, executionRepo
 }
 
 // ============================================================================
-// נקודת כניסה
+// נקודת כניסה - רק אם input מוגדר (סביבת Azure Functions)
 // ============================================================================
 
-const processInput = {
-    learned_config: input.learned_config,
-    docs_list: input.docs_list,
-    import_files: input.import_files,
-    AZURE_RESULT: input.AZURE_RESULT,
-    AZURE_TEXT: input.AZURE_TEXT
+if (typeof input !== 'undefined') {
+    const processInput = {
+        learned_config: input.learned_config,
+        docs_list: input.docs_list,
+        import_files: input.import_files,
+        AZURE_RESULT: input.AZURE_RESULT,
+        AZURE_TEXT: input.AZURE_TEXT
+    };
+
+    const result = processInvoiceComplete(processInput);
+
+    console.log(JSON.stringify(result));
+    return result;
+}
+
+// ============================================================================
+// ייצוא פונקציות למודול
+// ============================================================================
+module.exports = {
+    processInvoiceComplete
 };
-
-const result = processInvoiceComplete(processInput);
-
-console.log(JSON.stringify(result));
-return result;
