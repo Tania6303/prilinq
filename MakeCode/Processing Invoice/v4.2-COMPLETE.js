@@ -157,6 +157,45 @@ function processInvoiceComplete(input) {
             }
         });
 
+        // ✨ חדש! טיפול בשגיאות לתעודות חסרות
+        if (structure.has_doc) {
+            const foundDocsCount = searchResults.documents ? searchResults.documents.length : 0;
+            const ocrUnidentified = ocrFields.UnidentifiedNumbers || [];
+
+            // ספור כמה BOOKNUM נמצאו ב-OCR
+            const booknumPattern = /^108\d{6}$/;
+            let expectedDocsCount = 0;
+
+            if (typeof ocrUnidentified[0] === 'object' && ocrUnidentified[0].value) {
+                expectedDocsCount = ocrUnidentified.filter(item =>
+                    booknumPattern.test(item.value)
+                ).length;
+            } else {
+                expectedDocsCount = ocrUnidentified.filter(num =>
+                    booknumPattern.test(num)
+                ).length;
+            }
+
+            // טיפול בשגיאות
+            if (foundDocsCount === 0) {
+                // אף תעודה לא נמצאה
+                if (expectedDocsCount > 0) {
+                    executionReport.errors.push(
+                        `תבנית דורשת תעודות. נמצאו ${expectedDocsCount} BOOKNUM ב-OCR אך לא נמצאה התאמה ב-docs_list`
+                    );
+                } else {
+                    executionReport.errors.push(
+                        'תבנית דורשת תעודות אך לא נמצאו BOOKNUM ב-OCR'
+                    );
+                }
+            } else if (expectedDocsCount > 0 && foundDocsCount < expectedDocsCount) {
+                // נמצאו תעודות חלקיות
+                executionReport.warnings.push(
+                    `נמצאו רק ${foundDocsCount} מתוך ${expectedDocsCount} תעודות מה-OCR. חסרות ${expectedDocsCount - foundDocsCount} תעודות`
+                );
+            }
+        }
+
         // ============================================================================
         // שלב 4: בניית JSON
         // ============================================================================
@@ -547,9 +586,13 @@ function searchDocuments(ocrFields, azureText, patterns, docsList) {
         }
     }
 
+    // Fallback: אם לא נמצא ב-UnidentifiedNumbers, חפש ב-AZURE_TEXT
     if (foundDocs.length === 0 && azureText) {
         for (const doc of availableDocs) {
-            if (azureText.includes(doc.BOOKNUM)) {
+            // שיפור: חיפוש עם regex במקום includes (מדויק יותר)
+            // תבנית: גבול מילה + BOOKNUM + גבול מילה (כדי למנוע התאמה חלקית)
+            const pattern = new RegExp('\\b' + doc.BOOKNUM + '\\b');
+            if (pattern.test(azureText)) {
                 foundDocs.push({
                     DOCNO: doc.DOCNO,
                     BOOKNUM: doc.BOOKNUM,
@@ -1367,6 +1410,64 @@ function generateTechnicalConfig(config, ocrFields, searchResults, executionRepo
                 }
             ],
             example: searchResults.vehicles || ["459-06-303"]
+        };
+    }
+
+    // DOCUMENTS (DOCNO + BOOKNUM)
+    if (config.structure && config.structure.some(s => s.has_doc)) {
+        extractionRules.documents = {
+            search_in: [
+                {
+                    location: "ocrFields.UnidentifiedNumbers",
+                    priority: 1,
+                    filter: {
+                        label: "מס׳ הקצאה (BOOKNUM)",
+                        description: "חפש במערך UnidentifiedNumbers עם תווית BOOKNUM"
+                    },
+                    pattern: "\\b(108\\d{6})\\b",
+                    description: "BOOKNUM - 9 ספרות מתחיל ב-108"
+                },
+                {
+                    location: "AZURE_TEXT",
+                    priority: 2,
+                    fallback: true,
+                    pattern: "\\b(108\\d{6})\\b",
+                    description: "חיפוש fallback ב-AZURE_TEXT אם לא נמצא ב-UnidentifiedNumbers"
+                }
+            ],
+            matching: {
+                match_field: "BOOKNUM",
+                lookup_source: "docs_list.list_of_docs",
+                output_fields: ["DOCNO", "BOOKNUM"],
+                description: "התאם את BOOKNUM שנמצא ב-OCR עם docs_list כדי לקבל DOCNO"
+            },
+            output_format: {
+                field_name: "PIVDOC_SUBFORM",
+                structure: [
+                    {
+                        DOCNO: "string - מספר תעודה פנימי ב-Priority (25XXXXXX)",
+                        BOOKNUM: "string - מספר הקצאה חיצוני (108XXXXXX)"
+                    }
+                ]
+            },
+            error_handling: {
+                if_none_found: {
+                    action: "return_partial_json",
+                    include_empty_array: true,
+                    add_to_report: "errors",
+                    message: "תבנית דורשת תעודות אך לא נמצאו ב-OCR"
+                },
+                if_partial_found: {
+                    action: "return_partial_json",
+                    include_found_items: true,
+                    add_to_report: "warnings",
+                    message: "נמצאו רק {found_count} מתוך {expected_count} תעודות"
+                }
+            },
+            example: searchResults.documents || [
+                { DOCNO: "25026849", BOOKNUM: "108379736" },
+                { DOCNO: "25026850", BOOKNUM: "108379734" }
+            ]
         };
     }
 
