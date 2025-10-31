@@ -1,0 +1,179 @@
+{
+  "supplier_code": "3979",
+  "supplier_name": "אס.או.אס שרותי רכב בע\"מ",
+  "version": "4.2",
+  "document_type": "vehicle_service_invoice",
+  "extraction_rules": {
+    "booknum": {
+      "source": "ocrFields.InvoiceId",
+      "transformations": [
+        {
+          "action": "remove_prefix",
+          "pattern": "^SI",
+          "case_insensitive": true,
+          "description": "הסר קידומת SI אם קיימת"
+        },
+        {
+          "action": "take_last_n_chars",
+          "count": 7,
+          "description": "קח 7 תווים אחרונים"
+        }
+      ],
+      "validation": {
+        "length": 7,
+        "pattern": "^\\d{7}$",
+        "required": true
+      },
+      "example": "1015938"
+    },
+    "ivdate": {
+      "source": "ocrFields.InvoiceDate",
+      "format": "DD/MM/YY",
+      "transformation": {
+        "from": "ISO8601",
+        "to": "DD/MM/YY",
+        "description": "המר מפורמט ISO (YYYY-MM-DD) לפורמט DD/MM/YY"
+      },
+      "validation": {
+        "pattern": "^\\d{2}/\\d{2}/\\d{2}$",
+        "required": true
+      },
+      "example": "10/09/25"
+    },
+    "price": {
+      "calculation": {
+        "method": "subtract",
+        "primary": {
+          "formula": "ocrFields.InvoiceTotal_amount - ocrFields.TotalTax_amount",
+          "fields_required": [
+            "InvoiceTotal_amount",
+            "TotalTax_amount"
+          ],
+          "description": "סה\"כ לפני מע\"מ = סה\"כ כולל מע\"מ - מע\"מ"
+        },
+        "fallback": {
+          "formula": "ocrFields.SubTotal_amount || ocrFields.InvoiceTotal_amount",
+          "fields_required": [
+            "SubTotal_amount"
+          ],
+          "description": "אם אין TotalTax_amount, קח SubTotal_amount"
+        },
+        "division_by_vehicles": {
+          "enabled": true,
+          "formula": "totalPrice / vehicles.length",
+          "description": "אם יש מספר רכבים, חלק את המחיר הכולל באופן שווה"
+        }
+      },
+      "description": "מחיר לפני מע\"מ (עבודות + חלקים)",
+      "example_calculation": {
+        "invoice_total": 2524,
+        "total_tax": 385.02,
+        "calculated_price": 2138.98,
+        "formula_used": "InvoiceTotal_amount - TotalTax_amount"
+      }
+    },
+    "vehicles": {
+      "search_locations": [
+        {
+          "field": "ocrFields.UnidentifiedNumbers",
+          "priority": 1,
+          "filter": {
+            "label": "רכב",
+            "description": "רק פריטים עם תווית 'רכב'"
+          },
+          "pattern": "\\d{3}-\\d{2}-\\d{3}",
+          "validation": {
+            "must_match_pattern": true,
+            "exclude_if_context_contains": [
+              "כרטיס"
+            ],
+            "description": "בדוק שזה לא מספר כרטיס"
+          }
+        },
+        {
+          "field": "ocrFields.VehicleNumbers",
+          "priority": 2,
+          "pattern": "\\d{3}-\\d{2}-\\d{3}"
+        },
+        {
+          "field": "ocrFields.Items[].Description",
+          "priority": 3,
+          "pattern": "\\d{3}-\\d{2}-\\d{3}",
+          "description": "חפש בתיאור הפריטים"
+        }
+      ],
+      "example": [
+        "459-06-303"
+      ]
+    },
+    "description": {
+      "source": "ocrFields.Items[0].Description",
+      "extraction": {
+        "method": "pattern_match",
+        "patterns": [
+          {
+            "name": "service_with_km",
+            "pattern": "טיפול\\s+[\\d,]+\\s*ק[״\"]?מ",
+            "priority": 1,
+            "description": "טיפול XXX ק\"מ"
+          },
+          {
+            "name": "general_service",
+            "pattern": "(החלפת|תיקון|בדיקת)\\s+[\\u0590-\\u05FF\\s]+",
+            "priority": 2,
+            "description": "תיאור כללי של שירות"
+          }
+        ],
+        "max_words": 4,
+        "max_length": 50,
+        "append_mileage": {
+          "enabled": true,
+          "source": "ocrFields.CustomerId",
+          "format": "{description}-{mileage}",
+          "description": "אם יש ק\"מ נוכחי, הוסף בפורמט: 'תיאור-XXXXXק\"מ'"
+        }
+      },
+      "fallback": "טיפול",
+      "example": "טיפול 75000 ק\"מ"
+    }
+  },
+  "vehicle_mapping": {
+    "459-06-303": {
+      "accname": "66961",
+      "accdes": "459-06-303 אי גו ארביב",
+      "vat_pattern": {
+        "VATFLAG": "Y",
+        "SPECIALVATFLAG": "varies"
+      },
+      "date_range_pattern": "never",
+      "pdaccname_pattern": "never"
+    }
+  },
+  "template": {
+    "SUPNAME": "3979",
+    "CODE": "ש\"ח",
+    "DEBIT": "D",
+    "TUNITNAME": "יח'",
+    "TQUANT": 1,
+    "PINVOICESCONT_SUBFORM": [
+      {
+        "FNCPATNAME": "2323"
+      }
+    ]
+  },
+  "validation_rules": {
+    "required_fields": [
+      "SUPNAME",
+      "CODE",
+      "DEBIT",
+      "IVDATE",
+      "BOOKNUM"
+    ],
+    "booknum_length": 7,
+    "totquant_check": {
+      "enabled": true,
+      "compare_with_docs": true,
+      "learned_reference": 1
+    }
+  }
+}

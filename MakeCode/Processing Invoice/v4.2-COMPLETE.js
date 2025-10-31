@@ -201,20 +201,48 @@ function processInvoiceComplete(input) {
         // ניקוי שדות שלא צריכים (למידה בלבד, לא ל-Priority)
         const cleanedInvoice = cleanInvoiceForPriority(invoice);
 
+        // ============================================================================
+        // שלב 8: יצירת 2 פלטים נוספים
+        // ============================================================================
+
+        // פלט 1: הנחיות ל-LLM (פרומפט בשפה טבעית)
+        const llmPrompt = generateLLMPrompt(config, ocrFields, searchResults, executionReport);
+
+        // פלט 2: קונפיג טכני למערכת
+        const technicalConfig = generateTechnicalConfig(config, ocrFields, searchResults, executionReport);
+
         return {
             status: "success",
+
+            // 1. זיהוי ספק
             supplier_identification: {
                 supplier_code: input.learned_config.supplier_id,
                 supplier_name: input.learned_config.supplier_name,
                 identification_method: "vendor_tax_id",
                 confidence: "high"
             },
+
+            // 2. JSON לפריוריטי (הפלט העיקרי)
             invoice_data: {
                 PINVOICES: [cleanedInvoice]
             },
+
+            // 3. הנחיות ל-LLM (פרומפט בשפה טבעית) - חדש!
+            llm_prompt: llmPrompt,
+
+            // 4. קונפיג טכני למערכת - חדש!
+            technical_config: technicalConfig,
+
+            // 5. בקרות תקינות
             validation: validation,
+
+            // 6. ניתוח למידה (הנוכחי - נשאר לתאימות לאחור)
             learning_analysis: learningAnalysis,
+
+            // 7. דוח ביצוע
             execution_report: executionReport,
+
+            // 8. מטא-דאטה
             metadata: {
                 ocr_invoice_id: ocrFields.InvoiceId || "",
                 ocr_invoice_date: ocrFields.InvoiceDate || "",
@@ -1136,6 +1164,306 @@ function analyzeLearning(invoice, config) {
         new_patterns: newPatterns,
         learning_instructions: instructions,
         recommendation: learningRequired ? "שלח לקוד 3 ללמידה" : "אין צורך בלמידה"
+    };
+}
+
+// ============================================================================
+// פונקציות עזר - שלב 7 (יצירת פלטים נוספים)
+// ============================================================================
+
+function generateLLMPrompt(config, ocrFields, searchResults, executionReport) {
+    const supplierCode = config.supplier_config.supplier_code;
+    const supplierName = config.supplier_config.supplier_name;
+
+    // בניית הסבר על כל שדה
+    const fieldInstructions = {};
+
+    // BOOKNUM
+    fieldInstructions.booknum = {
+        field_name: "BOOKNUM",
+        description: "מספר חשבונית",
+        how_to_find: "חפש בשדה InvoiceId ב-OCR. הסר קידומת SI אם קיימת. קח את מספר התווים האחרונים לפי הדפוס הנלמד.",
+        example: searchResults.booknum || "1015938",
+        ocr_source: "ocrFields.InvoiceId"
+    };
+
+    // IVDATE
+    fieldInstructions.ivdate = {
+        field_name: "IVDATE",
+        description: "תאריך חשבונית",
+        how_to_find: "קח את InvoiceDate מה-OCR והמר לפורמט DD/MM/YY",
+        example: searchResults.ivdate || "10/09/25",
+        ocr_source: "ocrFields.InvoiceDate"
+    };
+
+    // PRICE - חשוב!
+    fieldInstructions.price = {
+        field_name: "PRICE",
+        description: "מחיר לפני מע\"מ (עבודות + חלקים)",
+        how_to_calculate: "חשב: InvoiceTotal_amount - TotalTax_amount. זה נותן את סה\"כ החשבונית לפני מע\"מ.",
+        formula: "InvoiceTotal_amount - TotalTax_amount",
+        example: ocrFields.InvoiceTotal_amount && ocrFields.TotalTax_amount
+            ? `${ocrFields.InvoiceTotal_amount} - ${ocrFields.TotalTax_amount} = ${ocrFields.InvoiceTotal_amount - ocrFields.TotalTax_amount}`
+            : "2524 - 385.02 = 2138.98",
+        fallback: "אם אין TotalTax_amount, קח SubTotal_amount. אם גם זה לא קיים, קח InvoiceTotal_amount.",
+        ocr_source: "ocrFields.InvoiceTotal_amount, ocrFields.TotalTax_amount"
+    };
+
+    // VEHICLES
+    const vehicleRules = config.rules?.critical_patterns?.vehicle_rules;
+    if (vehicleRules) {
+        fieldInstructions.vehicles = {
+            field_name: "VEHICLES",
+            description: "מספרי רכבים",
+            how_to_find: "חפש פורמט XXX-XX-XXX ב-UnidentifiedNumbers עם label='רכב'. בדוק שזה לא מספר כרטיס (context לא מכיל 'כרטיס').",
+            pattern: "\\d{3}-\\d{2}-\\d{3}",
+            example: searchResults.vehicles && searchResults.vehicles.length > 0
+                ? searchResults.vehicles.join(', ')
+                : "459-06-303",
+            ocr_source: "ocrFields.UnidentifiedNumbers (with label filter)"
+        };
+    }
+
+    // DETAILS
+    fieldInstructions.details = {
+        field_name: "DETAILS",
+        description: "תיאור החשבונית",
+        how_to_find: "אם יש רכבים: חלץ תיאור קצר של השירות (3-4 מילים, מקסימום 50 תווים) מהפריט הראשון ב-Items. אם יש גם ק\"מ נוכחי (CustomerId), הוסף אותו בפורמט: 'תיאור-XXXXXק\"מ'",
+        example: "טיפול 75000 ק\"מ-76256",
+        ocr_source: "ocrFields.Items[0].Description, ocrFields.CustomerId"
+    };
+
+    // מיפוי רכבים
+    const vehicleMapping = {};
+    if (vehicleRules && vehicleRules.vehicle_account_mapping) {
+        Object.keys(vehicleRules.vehicle_account_mapping).forEach(vNum => {
+            const mapping = vehicleRules.vehicle_account_mapping[vNum];
+            vehicleMapping[vNum] = {
+                account: mapping.accname,
+                budget_code: mapping.budcode,
+                vat_flag: mapping.vat_pattern?.VATFLAG || "Y",
+                description: mapping.accdes || `רכב ${vNum}`
+            };
+        });
+    }
+
+    return {
+        supplier_code: supplierCode,
+        supplier_name: supplierName,
+        document_type: "חשבונית שירותי רכב",
+        instructions: {
+            overview: `חשבונית מספק ${supplierName}. הספק מספק שירותי רכב ומוסך.`,
+            processing_steps: [
+                "1. זהה את מספר החשבונית (BOOKNUM) מתוך InvoiceId",
+                "2. חשב את המחיר הכולל לפני מע\"מ: InvoiceTotal - TotalTax",
+                "3. חלץ מספרי רכבים מ-UnidentifiedNumbers (פורמט XXX-XX-XXX)",
+                "4. מפה כל רכב לחשבון הנכון לפי vehicle_mapping",
+                "5. צור תיאור קצר של השירות מהפריט הראשון"
+            ],
+            fields: fieldInstructions,
+            vehicle_mapping: vehicleMapping
+        }
+    };
+}
+
+function generateTechnicalConfig(config, ocrFields, searchResults, executionReport) {
+    const supplierCode = config.supplier_config.supplier_code;
+    const supplierName = config.supplier_config.supplier_name;
+
+    // extraction rules מפורטים
+    const extractionRules = {};
+
+    // BOOKNUM
+    extractionRules.booknum = {
+        source: "ocrFields.InvoiceId",
+        transformations: [
+            {
+                action: "remove_prefix",
+                pattern: "^SI",
+                case_insensitive: true,
+                description: "הסר קידומת SI אם קיימת"
+            },
+            {
+                action: "take_last_n_chars",
+                count: 7,
+                description: "קח 7 תווים אחרונים"
+            }
+        ],
+        validation: {
+            length: 7,
+            pattern: "^\\d{7}$",
+            required: true
+        },
+        example: searchResults.booknum || "1015938"
+    };
+
+    // IVDATE
+    extractionRules.ivdate = {
+        source: "ocrFields.InvoiceDate",
+        format: "DD/MM/YY",
+        transformation: {
+            from: "ISO8601",
+            to: "DD/MM/YY",
+            description: "המר מפורמט ISO (YYYY-MM-DD) לפורמט DD/MM/YY"
+        },
+        validation: {
+            pattern: "^\\d{2}/\\d{2}/\\d{2}$",
+            required: true
+        },
+        example: searchResults.ivdate || "10/09/25"
+    };
+
+    // PRICE - החישוב החשוב!
+    extractionRules.price = {
+        calculation: {
+            method: "subtract",
+            primary: {
+                formula: "ocrFields.InvoiceTotal_amount - ocrFields.TotalTax_amount",
+                fields_required: ["InvoiceTotal_amount", "TotalTax_amount"],
+                description: "סה\"כ לפני מע\"מ = סה\"כ כולל מע\"מ - מע\"מ"
+            },
+            fallback: {
+                formula: "ocrFields.SubTotal_amount || ocrFields.InvoiceTotal_amount",
+                fields_required: ["SubTotal_amount"],
+                description: "אם אין TotalTax_amount, קח SubTotal_amount"
+            },
+            division_by_vehicles: {
+                enabled: true,
+                formula: "totalPrice / vehicles.length",
+                description: "אם יש מספר רכבים, חלק את המחיר הכולל באופן שווה"
+            }
+        },
+        description: "מחיר לפני מע\"מ (עבודות + חלקים)",
+        example_calculation: ocrFields.InvoiceTotal_amount && ocrFields.TotalTax_amount
+            ? {
+                invoice_total: ocrFields.InvoiceTotal_amount,
+                total_tax: ocrFields.TotalTax_amount,
+                calculated_price: ocrFields.InvoiceTotal_amount - ocrFields.TotalTax_amount,
+                formula_used: "InvoiceTotal_amount - TotalTax_amount"
+            }
+            : {
+                invoice_total: 2524,
+                total_tax: 385.02,
+                calculated_price: 2138.98,
+                formula_used: "2524 - 385.02"
+            }
+    };
+
+    // VEHICLES
+    const vehicleRules = config.rules?.critical_patterns?.vehicle_rules;
+    if (vehicleRules) {
+        extractionRules.vehicles = {
+            search_locations: [
+                {
+                    field: "ocrFields.UnidentifiedNumbers",
+                    priority: 1,
+                    filter: {
+                        label: "רכב",
+                        description: "רק פריטים עם תווית 'רכב'"
+                    },
+                    pattern: "\\d{3}-\\d{2}-\\d{3}",
+                    validation: {
+                        must_match_pattern: true,
+                        exclude_if_context_contains: ["כרטיס"],
+                        description: "בדוק שזה לא מספר כרטיס"
+                    }
+                },
+                {
+                    field: "ocrFields.VehicleNumbers",
+                    priority: 2,
+                    pattern: "\\d{3}-\\d{2}-\\d{3}"
+                },
+                {
+                    field: "ocrFields.Items[].Description",
+                    priority: 3,
+                    pattern: "\\d{3}-\\d{2}-\\d{3}",
+                    description: "חפש בתיאור הפריטים"
+                }
+            ],
+            example: searchResults.vehicles || ["459-06-303"]
+        };
+    }
+
+    // DESCRIPTION
+    extractionRules.description = {
+        source: "ocrFields.Items[0].Description",
+        extraction: {
+            method: "pattern_match",
+            patterns: [
+                {
+                    name: "service_with_km",
+                    pattern: "טיפול\\s+[\\d,]+\\s*ק[״\"]?מ",
+                    priority: 1,
+                    description: "טיפול XXX ק\"מ"
+                },
+                {
+                    name: "general_service",
+                    pattern: "(החלפת|תיקון|בדיקת)\\s+[\\u0590-\\u05FF\\s]+",
+                    priority: 2,
+                    description: "תיאור כללי של שירות"
+                }
+            ],
+            max_words: 4,
+            max_length: 50,
+            append_mileage: {
+                enabled: true,
+                source: "ocrFields.CustomerId",
+                format: "{description}-{mileage}",
+                description: "אם יש ק\"מ נוכחי, הוסף בפורמט: 'תיאור-XXXXXק\"מ'"
+            }
+        },
+        fallback: "טיפול",
+        example: "טיפול 75000 ק\"מ"
+    };
+
+    // Vehicle mapping
+    const vehicleMapping = {};
+    if (vehicleRules && vehicleRules.vehicle_account_mapping) {
+        Object.keys(vehicleRules.vehicle_account_mapping).forEach(vNum => {
+            const mapping = vehicleRules.vehicle_account_mapping[vNum];
+            vehicleMapping[vNum] = {
+                accname: mapping.accname,
+                accdes: mapping.accdes,
+                budcode: mapping.budcode,
+                vat_pattern: {
+                    VATFLAG: mapping.vat_pattern?.VATFLAG || "Y",
+                    SPECIALVATFLAG: mapping.vat_pattern?.SPECIALVATFLAG
+                },
+                date_range_pattern: mapping.date_range_pattern || "never",
+                pdaccname_pattern: mapping.pdaccname_pattern || "never"
+            };
+        });
+    }
+
+    // Template structure
+    const template = {
+        SUPNAME: supplierCode,
+        CODE: "ש\"ח",
+        DEBIT: "D",
+        TUNITNAME: "יח'",
+        TQUANT: 1,
+        PINVOICESCONT_SUBFORM: [
+            { FNCPATNAME: "2323" }
+        ]
+    };
+
+    return {
+        supplier_code: supplierCode,
+        supplier_name: supplierName,
+        version: "4.2",
+        document_type: "vehicle_service_invoice",
+        extraction_rules: extractionRules,
+        vehicle_mapping: vehicleMapping,
+        template: template,
+        validation_rules: {
+            required_fields: ["SUPNAME", "CODE", "DEBIT", "IVDATE", "BOOKNUM"],
+            booknum_length: 7,
+            totquant_check: {
+                enabled: true,
+                compare_with_docs: true,
+                learned_reference: config.rules.validation_data.TOTQUANT || 1
+            }
+        }
     };
 }
 

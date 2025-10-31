@@ -1,0 +1,62 @@
+{
+  "supplier_code": "3979",
+  "supplier_name": "אס.או.אס שרותי רכב בע\"מ",
+  "document_type": "חשבונית שירותי רכב",
+  "instructions": {
+    "overview": "חשבונית מספק אס.או.אס שרותי רכב בע\"מ. הספק מספק שירותי רכב ומוסך.",
+    "processing_steps": [
+      "1. זהה את מספר החשבונית (BOOKNUM) מתוך InvoiceId",
+      "2. חשב את המחיר הכולל לפני מע\"מ: InvoiceTotal - TotalTax",
+      "3. חלץ מספרי רכבים מ-UnidentifiedNumbers (פורמט XXX-XX-XXX)",
+      "4. מפה כל רכב לחשבון הנכון לפי vehicle_mapping",
+      "5. צור תיאור קצר של השירות מהפריט הראשון"
+    ],
+    "fields": {
+      "booknum": {
+        "field_name": "BOOKNUM",
+        "description": "מספר חשבונית",
+        "how_to_find": "חפש בשדה InvoiceId ב-OCR. הסר קידומת SI אם קיימת. קח את מספר התווים האחרונים לפי הדפוס הנלמד.",
+        "example": "1015938",
+        "ocr_source": "ocrFields.InvoiceId"
+      },
+      "ivdate": {
+        "field_name": "IVDATE",
+        "description": "תאריך חשבונית",
+        "how_to_find": "קח את InvoiceDate מה-OCR והמר לפורמט DD/MM/YY",
+        "example": "10/09/25",
+        "ocr_source": "ocrFields.InvoiceDate"
+      },
+      "price": {
+        "field_name": "PRICE",
+        "description": "מחיר לפני מע\"מ (עבודות + חלקים)",
+        "how_to_calculate": "חשב: InvoiceTotal_amount - TotalTax_amount. זה נותן את סה\"כ החשבונית לפני מע\"מ.",
+        "formula": "InvoiceTotal_amount - TotalTax_amount",
+        "example": "2524 - 385.02 = 2138.98",
+        "fallback": "אם אין TotalTax_amount, קח SubTotal_amount. אם גם זה לא קיים, קח InvoiceTotal_amount.",
+        "ocr_source": "ocrFields.InvoiceTotal_amount, ocrFields.TotalTax_amount"
+      },
+      "vehicles": {
+        "field_name": "VEHICLES",
+        "description": "מספרי רכבים",
+        "how_to_find": "חפש פורמט XXX-XX-XXX ב-UnidentifiedNumbers עם label='רכב'. בדוק שזה לא מספר כרטיס (context לא מכיל 'כרטיס').",
+        "pattern": "\\d{3}-\\d{2}-\\d{3}",
+        "example": "459-06-303",
+        "ocr_source": "ocrFields.UnidentifiedNumbers (with label filter)"
+      },
+      "details": {
+        "field_name": "DETAILS",
+        "description": "תיאור החשבונית",
+        "how_to_find": "אם יש רכבים: חלץ תיאור קצר של השירות (3-4 מילים, מקסימום 50 תווים) מהפריט הראשון ב-Items. אם יש גם ק\"מ נוכחי (CustomerId), הוסף אותו בפורמט: 'תיאור-XXXXXק\"מ'",
+        "example": "טיפול 75000 ק\"מ-76256",
+        "ocr_source": "ocrFields.Items[0].Description, ocrFields.CustomerId"
+      }
+    },
+    "vehicle_mapping": {
+      "459-06-303": {
+        "account": "66961",
+        "vat_flag": "Y",
+        "description": "459-06-303 אי גו ארביב"
+      }
+    }
+  }
+}
