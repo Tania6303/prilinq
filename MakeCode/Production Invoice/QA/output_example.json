@@ -1,0 +1,55 @@
+{
+  "_comment": "דוגמת פלט צפוי ממודול Production Invoice Generator - ספק 2511",
+
+  "status": "success",
+
+  "invoice": {
+    "PINVOICES": [
+      {
+        "SUPNAME": "2511",
+        "CODE": "I",
+        "DEBIT": "D",
+        "IVDATE": "28/10/25",
+        "BOOKNUM": "60000013",
+        "DETAILS": "פלסאון - חשבונית עם תעודות",
+        "PIVDOC_SUBFORM": [
+          {
+            "DOCNO": "25026849",
+            "BOOKNUM": "108379736"
+          },
+          {
+            "DOCNO": "25026850",
+            "BOOKNUM": "108379734"
+          },
+          {
+            "DOCNO": "25026832",
+            "BOOKNUM": "108367753"
+          },
+          {
+            "DOCNO": "25026831",
+            "BOOKNUM": "108367755"
+          }
+        ],
+        "PINVOICESCONT_SUBFORM": [
+          {
+            "FNCPATNAME": "2323"
+          }
+        ]
+      }
+    ]
+  },
+
+  "execution_report": {
+    "stage": "הושלם",
+    "found": [
+      "מצב: יבוא=false, תעודות=true, חיוב/זיכוי=D",
+      "תבנית: index=0",
+      "BOOKNUM: 60000013",
+      "תאריך: 28/10/25",
+      "תעודות: 4 - 108379736 (DOCNO: 25026849), 108379734 (DOCNO: 25026850), 108367753 (DOCNO: 25026832), 108367755 (DOCNO: 25026831)"
+    ],
+    "not_found": [],
+    "warnings": [],
+    "errors": []
+  }
+}

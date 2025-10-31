@@ -1,0 +1,112 @@
+{
+  "_comment": "דוגמת קלט למודול Production Invoice Generator - ספק 2511",
+
+  "learned_config": {
+    "status": "success",
+    "supplier_id": "2511",
+    "supplier_name": "פלסאון בע\"מ",
+    "config": {
+      "supplier_config": {
+        "supplier_code": "2511",
+        "supplier_name": "פלסאון בע\"מ",
+        "vendor_tax_id_reference": "512865254"
+      },
+      "structure": [
+        {
+          "has_import": false,
+          "has_purchase_orders": false,
+          "has_doc": true,
+          "has_date_range": false,
+          "inventory_management": "managed_inventory",
+          "debit_type": "D"
+        }
+      ],
+      "rules": {
+        "invoice_date_format": "DD/MM/YY",
+        "critical_patterns": {
+          "vehicle_rules": null
+        }
+      }
+    },
+    "template": {
+      "PINVOICES": [
+        {
+          "CODE": "I",
+          "DETAILS": "פלסאון - חשבונית עם תעודות",
+          "ACCNAME": "63001",
+          "PINVOICESCONT_SUBFORM": [
+            {
+              "FNCPATNAME": "2323"
+            }
+          ],
+          "PIVDOC_SUBFORM": [
+            {
+              "DOCNO": "",
+              "BOOKNUM": ""
+            }
+          ]
+        }
+      ]
+    }
+  },
+
+  "docs_list": {
+    "DOC_YES_NO": "Y",
+    "list_of_docs": [
+      "[{\"DOCNO\":\"25026831\",\"BOOKNUM\":\"108367755\",\"TOTQUANT\":120},{\"DOCNO\":\"25026832\",\"BOOKNUM\":\"108367753\",\"TOTQUANT\":448},{\"DOCNO\":\"25026849\",\"BOOKNUM\":\"108379736\",\"TOTQUANT\":40},{\"DOCNO\":\"25026850\",\"BOOKNUM\":\"108379734\",\"TOTQUANT\":600}]"
+    ]
+  },
+
+  "import_files": {
+    "IMPFILES": []
+  },
+
+  "vehicles": {
+    "list_of_vehicles": []
+  },
+
+  "AZURE_RESULT": {
+    "structure": {
+      "docType": "string",
+      "fields": {}
+    },
+    "data": {
+      "docType": "invoice",
+      "fields": {
+        "InvoiceId": "60000013",
+        "InvoiceDate": "2025-10-28",
+        "InvoiceTotal_amount": 1208,
+        "TotalTax_amount": 180,
+        "UnidentifiedNumbers": [
+          {
+            "label": "מס׳ הקצאה (BOOKNUM)",
+            "value": "108379736",
+            "context": "ון: 60000013 מס׳ תעודת משלוח: 108379736, 108379734"
+          },
+          {
+            "label": "מס׳ הקצאה (BOOKNUM)",
+            "value": "108379734",
+            "context": "3 מס׳ תעודת משלוח: 108379736, 108379734, 108367753"
+          },
+          {
+            "label": "מס׳ הקצאה (BOOKNUM)",
+            "value": "108367753",
+            "context": "משלוח: 108379736, 108379734, 108367753 ,108367755"
+          },
+          {
+            "label": "מס׳ הקצאה (BOOKNUM)",
+            "value": "108367755",
+            "context": "379736, 108379734, 108367753 ,108367755 מס׳ הקצאה"
+          }
+        ]
+      }
+    },
+    "metadata": {
+      "modelId": "prebuilt-invoice",
+      "totalFields": 8,
+      "uniqueDataFound": 10
+    }
+  },
+
+  "AZURE_TEXT": "חשבונית מס/קבלה\nפלסאון בע\"מ\nח.פ: 512865254\nתאריך: 28/10/2025\nמס' חשבונית: 60000013\nמס׳ תעודת משלוח: 108379736, 108379734, 108367753, 108367755\nסה\"כ לפני מע\"מ: 1,028\nמע\"מ 17%: 180\nסה\"כ לתשלום: 1,208 ש\"ח"
+}
