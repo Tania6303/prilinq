@@ -449,10 +449,49 @@ function processInvoiceComplete(input) {
 
         console.log("DEBUG: inputData keys:", Object.keys(inputData));
 
-        const learnedConfig = inputData.learned_config || {};
-        const docsList = inputData.docs_list || { DOC_YES_NO: "N", list_of_docs: [] };
-        const importFiles = inputData.import_files || { IMPFILES: [] };
-        const azureResult = inputData.AZURE_RESULT || { data: { fields: {} } };
+        // Parse learned_config אם זה string
+        let learnedConfig = inputData.learned_config || {};
+        if (typeof learnedConfig === 'string') {
+            try {
+                learnedConfig = JSON.parse(learnedConfig);
+            } catch (e) {
+                console.log("DEBUG: Failed to parse learned_config");
+                learnedConfig = {};
+            }
+        }
+
+        // Parse docs_list אם זה string
+        let docsList = inputData.docs_list || { DOC_YES_NO: "N", list_of_docs: [] };
+        if (typeof docsList === 'string') {
+            try {
+                docsList = JSON.parse(docsList);
+            } catch (e) {
+                docsList = { DOC_YES_NO: "N", list_of_docs: [] };
+            }
+        }
+
+        // Parse import_files אם זה string
+        let importFiles = inputData.import_files || { IMPFILES: [] };
+        if (typeof importFiles === 'string') {
+            try {
+                importFiles = JSON.parse(importFiles);
+            } catch (e) {
+                importFiles = { IMPFILES: [] };
+            }
+        }
+
+        // Parse AZURE_RESULT אם זה string - זו הבעיה המרכזית!
+        let azureResult = inputData.AZURE_RESULT || { data: { fields: {} } };
+        if (typeof azureResult === 'string') {
+            console.log("DEBUG: AZURE_RESULT is string, parsing...");
+            try {
+                azureResult = JSON.parse(azureResult);
+            } catch (e) {
+                console.log("DEBUG: Failed to parse AZURE_RESULT");
+                azureResult = { data: { fields: {} } };
+            }
+        }
+
         const azureText = inputData.AZURE_TEXT || "";
 
         console.log("DEBUG: azureResult type:", typeof azureResult, "has data?", !!azureResult.data);
