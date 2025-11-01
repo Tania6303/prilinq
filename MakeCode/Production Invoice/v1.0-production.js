@@ -11,6 +11,25 @@
 // ============================================================================
 
 // ============================================================================
+// פונקציית עזר - הסרת undefined values רקורסיבית
+// ============================================================================
+
+function removeUndefinedValues(obj) {
+    if (Array.isArray(obj)) {
+        return obj.map(item => removeUndefinedValues(item));
+    } else if (obj !== null && typeof obj === 'object') {
+        const cleaned = {};
+        for (const [key, value] of Object.entries(obj)) {
+            if (value !== undefined) {
+                cleaned[key] = removeUndefinedValues(value);
+            }
+        }
+        return cleaned;
+    }
+    return obj;
+}
+
+// ============================================================================
 // פונקציית עזר - ניקוי invoice לפני שליחה ל-Priority
 // ============================================================================
 
@@ -364,17 +383,21 @@ function processProductionInvoice(productionInput) {
             result.metadata.cars_count = (productionInput.CARS || []).length;
         }
 
-        return result;
+        // הסר כל ערכי undefined מהתוצאה
+        return removeUndefinedValues(result);
 
     } catch (error) {
         executionReport.errors.push(error.message);
 
-        return {
+        const errorResult = {
             status: "error",
             error_type: error.name || "ProductionProcessingError",
             message: error.message,
             execution_report: executionReport
         };
+
+        // הסר כל ערכי undefined גם בשגיאות
+        return removeUndefinedValues(errorResult);
     }
 }
 
@@ -485,7 +508,7 @@ function processInvoiceComplete(input) {
 
         const cleanedInvoice = cleanInvoiceForPriority(invoice);
 
-        return {
+        const result = {
             status: "success",
             supplier_identification: {
                 supplier_code: learnedConfig.supplier_id || config.supplier_config?.supplier_code || "",
@@ -508,15 +531,21 @@ function processInvoiceComplete(input) {
             }
         };
 
+        // הסר כל ערכי undefined מהתוצאה לפני החזרה
+        return removeUndefinedValues(result);
+
     } catch (error) {
         executionReport.errors.push(error.message);
 
-        return {
+        const errorResult = {
             status: "error",
             error_type: error.name || "ProcessingError",
             message: error.message,
             execution_report: executionReport
         };
+
+        // הסר כל ערכי undefined גם בשגיאות
+        return removeUndefinedValues(errorResult);
     }
 }
 
