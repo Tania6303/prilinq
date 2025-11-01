@@ -436,6 +436,9 @@ function processInvoiceComplete(input) {
     };
 
     try {
+        // DEBUG: לוג את מה שמגיע
+        console.log("DEBUG: input structure:", JSON.stringify(input).substring(0, 200));
+
         // חילוץ נתונים מהמבנה
         const inputData = {};
         if (input.input && Array.isArray(input.input)) {
@@ -444,19 +447,27 @@ function processInvoiceComplete(input) {
             });
         }
 
+        console.log("DEBUG: inputData keys:", Object.keys(inputData));
+
         const learnedConfig = inputData.learned_config || {};
         const docsList = inputData.docs_list || { DOC_YES_NO: "N", list_of_docs: [] };
         const importFiles = inputData.import_files || { IMPFILES: [] };
         const azureResult = inputData.AZURE_RESULT || { data: { fields: {} } };
         const azureText = inputData.AZURE_TEXT || "";
 
+        console.log("DEBUG: azureResult type:", typeof azureResult, "has data?", !!azureResult.data);
+
         // וידוא שיש data.fields
         if (!azureResult.data) {
+            console.log("DEBUG: Creating azureResult.data");
             azureResult.data = { fields: {}, documents: [] };
         }
         if (!azureResult.data.fields) {
+            console.log("DEBUG: Creating azureResult.data.fields");
             azureResult.data.fields = {};
         }
+
+        console.log("DEBUG: azureResult.data.fields type:", typeof azureResult.data.fields);
 
         executionReport.stage = "שלב 1: זיהוי סוג ותבנית";
 
