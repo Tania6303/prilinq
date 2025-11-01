@@ -475,31 +475,37 @@ function detectEmails(content, existing, detected) {
 
 function extractUniqueData(content, existingFields) {
     const uniqueData = [];
-    
+
     // 1. זיהוי תבניות "כותרת: ערך"
     const labelValuePairs = extractLabelValuePairs(content, existingFields);
     for (let i = 0; i < labelValuePairs.length; i++) {
         uniqueData.push(labelValuePairs[i]);
     }
-    
+
     // 2. זיהוי קודי חלקים/מוצרים
     const partCodes = extractPartCodes(content, existingFields);
     for (let i = 0; i < partCodes.length; i++) {
         uniqueData.push(partCodes[i]);
     }
-    
+
     // 3. זיהוי מספרי רכב
     const vehicleNumbers = extractVehicleNumbers(content, existingFields);
     for (let i = 0; i < vehicleNumbers.length; i++) {
         uniqueData.push(vehicleNumbers[i]);
     }
-    
-    // 4. זיהוי מספרים ייחודיים באורכים מיוחדים
+
+    // 4. זיהוי מספרי תעודות (DOCNO, BOOKNUM)
+    const documentNumbers = extractDocumentNumbers(content, existingFields);
+    for (let i = 0; i < documentNumbers.length; i++) {
+        uniqueData.push(documentNumbers[i]);
+    }
+
+    // 5. זיהוי מספרים ייחודיים באורכים מיוחדים
     const specialNumbers = extractSpecialLengthNumbers(content, existingFields);
     for (let i = 0; i < specialNumbers.length; i++) {
         uniqueData.push(specialNumbers[i]);
     }
-    
+
     return uniqueData;
 }
 
@@ -608,25 +614,64 @@ function extractVehicleNumbers(content, existing) {
     return vehicles;
 }
 
+function extractDocumentNumbers(content, existing) {
+    const documents = [];
+
+    // תבניות מספרי תעודות:
+    // DOCNO: 25XXXXXX (8 ספרות, מתחיל ב-25)
+    // BOOKNUM: 108XXXXXX (9 ספרות, מתחיל ב-108)
+    const patterns = [
+        { pattern: /\b(25\d{6})\b/g, label: 'מס׳ תעודה (DOCNO)' },
+        { pattern: /\b(108\d{6})\b/g, label: 'מס׳ הקצאה (BOOKNUM)' }
+    ];
+
+    for (let p = 0; p < patterns.length; p++) {
+        const patternObj = patterns[p];
+        const matches = content.match(patternObj.pattern) || [];
+
+        for (let i = 0; i < matches.length; i++) {
+            const number = matches[i];
+
+            // בדוק אם המספר לא קיים כבר
+            if (!isValueExists(number, existing) && !codeAlreadyFound(number, documents)) {
+                const context = findContext(content, number);
+
+                documents.push({
+                    label: patternObj.label,
+                    value: number,
+                    context: context
+                });
+            }
+        }
+    }
+
+    return documents;
+}
+
 function extractSpecialLengthNumbers(content, existing) {
     const numbers = [];
-    
+
     // מספרים באורכים מיוחדים שעשויים להיות חשובים:
     // 13 ספרות - מספר הקצאה/אסמכתא
     // 17 תווים - VIN (כבר נתפס על ידי אז'ור, אבל נבדוק)
-    
+
     const longNumbers = findAllNumbers(content, 13, 17);
-    
+
     for (let i = 0; i < longNumbers.length && numbers.length < 10; i++) {
         const num = longNumbers[i];
-        
+
+        // סינון: התעלם ממספרים שמתחילים בשנה (202X) - אלה תאריכים, לא VIN
+        if (num.startsWith('202')) {
+            continue;
+        }
+
         if (!isValueExists(num, existing)) {
             const context = findContext(content, num);
-            
+
             let label = 'מספר ייחודי';
             if (num.length === 13) label = 'מספר הקצאה/אסמכתא';
             if (num.length === 17) label = 'מספר זיהוי (VIN)';
-            
+
             numbers.push({
                 label: label,
                 value: num,
@@ -634,7 +679,7 @@ function extractSpecialLengthNumbers(content, existing) {
             });
         }
     }
-    
+
     return numbers;
 }
 

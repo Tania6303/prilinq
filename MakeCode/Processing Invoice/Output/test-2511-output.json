@@ -1,0 +1,259 @@
+{
+  "status": "success",
+  "invoice_data": {
+    "PINVOICES": [
+      {
+        "SUPNAME": "2511",
+        "CODE": "ש\"ח",
+        "DEBIT": "D",
+        "IVDATE": "26/10/25",
+        "BOOKNUM": "258001605",
+        "PIVDOC_SUBFORM": [
+          {
+            "DOCNO": "25026831",
+            "BOOKNUM": "108367755"
+          },
+          {
+            "DOCNO": "25026832",
+            "BOOKNUM": "108367753"
+          },
+          {
+            "DOCNO": "25026849",
+            "BOOKNUM": "108379736"
+          },
+          {
+            "DOCNO": "25026850",
+            "BOOKNUM": "108379734"
+          }
+        ]
+      }
+    ]
+  },
+  "llm_prompt": {
+    "supplier_code": "2511",
+    "supplier_name": "פלסאון בע\"מ",
+    "document_type": "חשבונית שירותי רכב",
+    "instructions": {
+      "overview": "חשבונית מספק פלסאון בע\"מ. הספק מספק שירותי רכב ומוסך.",
+      "processing_steps": [
+        "1. זהה את מספר החשבונית (BOOKNUM) מתוך InvoiceId",
+        "2. חשב את המחיר הכולל לפני מע\"מ: InvoiceTotal - TotalTax",
+        "3. חלץ מספרי רכבים מ-UnidentifiedNumbers (פורמט XXX-XX-XXX)",
+        "4. מפה כל רכב לחשבון הנכון לפי vehicle_mapping",
+        "5. צור תיאור קצר של השירות מהפריט הראשון"
+      ],
+      "fields": {
+        "booknum": {
+          "field_name": "BOOKNUM",
+          "description": "מספר חשבונית",
+          "how_to_find": "חפש בשדה InvoiceId ב-OCR. הסר קידומת SI אם קיימת. קח את מספר התווים האחרונים לפי הדפוס הנלמד.",
+          "example": "258001605",
+          "ocr_source": "ocrFields.InvoiceId"
+        },
+        "ivdate": {
+          "field_name": "IVDATE",
+          "description": "תאריך חשבונית",
+          "how_to_find": "קח את InvoiceDate מה-OCR והמר לפורמט DD/MM/YY",
+          "example": "26/10/25",
+          "ocr_source": "ocrFields.InvoiceDate"
+        },
+        "price": {
+          "field_name": "PRICE",
+          "description": "מחיר לפני מע\"מ (עבודות + חלקים)",
+          "how_to_calculate": "חשב: InvoiceTotal_amount - TotalTax_amount. זה נותן את סה\"כ החשבונית לפני מע\"מ.",
+          "formula": "InvoiceTotal_amount - TotalTax_amount",
+          "example": "149671.2 - 22831.2 = 126840.00000000001",
+          "fallback": "אם אין TotalTax_amount, קח SubTotal_amount. אם גם זה לא קיים, קח InvoiceTotal_amount.",
+          "ocr_source": "ocrFields.InvoiceTotal_amount, ocrFields.TotalTax_amount"
+        },
+        "vehicles": {
+          "field_name": "VEHICLES",
+          "description": "מספרי רכבים",
+          "how_to_find": "חפש פורמט XXX-XX-XXX ב-UnidentifiedNumbers עם label='רכב'. בדוק שזה לא מספר כרטיס (context לא מכיל 'כרטיס').",
+          "pattern": "\\d{3}-\\d{2}-\\d{3}",
+          "example": "459-06-303",
+          "ocr_source": "ocrFields.UnidentifiedNumbers (with label filter)"
+        },
+        "details": {
+          "field_name": "DETAILS",
+          "description": "תיאור החשבונית",
+          "how_to_find": "אם יש רכבים: חלץ תיאור קצר של השירות (3-4 מילים, מקסימום 50 תווים) מהפריט הראשון ב-Items. אם יש גם ק\"מ נוכחי (CustomerId), הוסף אותו בפורמט: 'תיאור-XXXXXק\"מ'",
+          "example": "טיפול 75000 ק\"מ-76256",
+          "ocr_source": "ocrFields.Items[0].Description, ocrFields.CustomerId"
+        }
+      },
+      "vehicle_mapping": {}
+    }
+  },
+  "technical_config": {
+    "supplier_code": "2511",
+    "supplier_name": "פלסאון בע\"מ",
+    "version": "4.2",
+    "document_type": "vehicle_service_invoice",
+    "extraction_rules": {
+      "booknum": {
+        "source": "ocrFields.InvoiceId",
+        "transformations": [
+          {
+            "action": "remove_prefix",
+            "pattern": "^SI",
+            "case_insensitive": true,
+            "description": "הסר קידומת SI אם קיימת"
+          },
+          {
+            "action": "take_last_n_chars",
+            "count": 7,
+            "description": "קח 7 תווים אחרונים"
+          }
+        ],
+        "validation": {
+          "length": 7,
+          "pattern": "^\\d{7}$",
+          "required": true
+        },
+        "example": "258001605"
+      },
+      "ivdate": {
+        "source": "ocrFields.InvoiceDate",
+        "format": "DD/MM/YY",
+        "transformation": {
+          "from": "ISO8601",
+          "to": "DD/MM/YY",
+          "description": "המר מפורמט ISO (YYYY-MM-DD) לפורמט DD/MM/YY"
+        },
+        "validation": {
+          "pattern": "^\\d{2}/\\d{2}/\\d{2}$",
+          "required": true
+        },
+        "example": "26/10/25"
+      },
+      "price": {
+        "calculation": {
+          "method": "subtract",
+          "primary": {
+            "formula": "ocrFields.InvoiceTotal_amount - ocrFields.TotalTax_amount",
+            "fields_required": [
+              "InvoiceTotal_amount",
+              "TotalTax_amount"
+            ],
+            "description": "סה\"כ לפני מע\"מ = סה\"כ כולל מע\"מ - מע\"מ"
+          },
+          "fallback": {
+            "formula": "ocrFields.SubTotal_amount || ocrFields.InvoiceTotal_amount",
+            "fields_required": [
+              "SubTotal_amount"
+            ],
+            "description": "אם אין TotalTax_amount, קח SubTotal_amount"
+          },
+          "division_by_vehicles": {
+            "enabled": true,
+            "formula": "totalPrice / vehicles.length",
+            "description": "אם יש מספר רכבים, חלק את המחיר הכולל באופן שווה"
+          }
+        },
+        "description": "מחיר לפני מע\"מ (עבודות + חלקים)",
+        "example_calculation": {
+          "invoice_total": 149671.2,
+          "total_tax": 22831.2,
+          "calculated_price": 126840.00000000001,
+          "formula_used": "InvoiceTotal_amount - TotalTax_amount"
+        }
+      },
+      "vehicles": {
+        "search_locations": [
+          {
+            "field": "ocrFields.UnidentifiedNumbers",
+            "priority": 1,
+            "filter": {
+              "label": "רכב",
+              "description": "רק פריטים עם תווית 'רכב'"
+            },
+            "pattern": "\\d{3}-\\d{2}-\\d{3}",
+            "validation": {
+              "must_match_pattern": true,
+              "exclude_if_context_contains": [
+                "כרטיס"
+              ],
+              "description": "בדוק שזה לא מספר כרטיס"
+            }
+          },
+          {
+            "field": "ocrFields.VehicleNumbers",
+            "priority": 2,
+            "pattern": "\\d{3}-\\d{2}-\\d{3}"
+          },
+          {
+            "field": "ocrFields.Items[].Description",
+            "priority": 3,
+            "pattern": "\\d{3}-\\d{2}-\\d{3}",
+            "description": "חפש בתיאור הפריטים"
+          }
+        ],
+        "example": []
+      },
+      "description": {
+        "source": "ocrFields.Items[0].Description",
+        "extraction": {
+          "method": "pattern_match",
+          "patterns": [
+            {
+              "name": "service_with_km",
+              "pattern": "טיפול\\s+[\\d,]+\\s*ק[״\"]?מ",
+              "priority": 1,
+              "description": "טיפול XXX ק\"מ"
+            },
+            {
+              "name": "general_service",
+              "pattern": "(החלפת|תיקון|בדיקת)\\s+[\\u0590-\\u05FF\\s]+",
+              "priority": 2,
+              "description": "תיאור כללי של שירות"
+            }
+          ],
+          "max_words": 4,
+          "max_length": 50,
+          "append_mileage": {
+            "enabled": true,
+            "source": "ocrFields.CustomerId",
+            "format": "{description}-{mileage}",
+            "description": "אם יש ק\"מ נוכחי, הוסף בפורמט: 'תיאור-XXXXXק\"מ'"
+          }
+        },
+        "fallback": "טיפול",
+        "example": "טיפול 75000 ק\"מ"
+      }
+    },
+    "vehicle_mapping": {},
+    "template": {
+      "SUPNAME": "2511",
+      "CODE": "ש\"ח",
+      "DEBIT": "D",
+      "TUNITNAME": "יח'",
+      "TQUANT": 1,
+      "PINVOICESCONT_SUBFORM": [
+        {
+          "FNCPATNAME": "2323"
+        }
+      ]
+    },
+    "validation_rules": {
+      "required_fields": [
+        "SUPNAME",
+        "CODE",
+        "DEBIT",
+        "IVDATE",
+        "BOOKNUM"
+      ],
+      "booknum_length": 7,
+      "totquant_check": {
+        "enabled": true,
+        "compare_with_docs": true,
+        "learned_reference": 1208
+      }
+    }
+  },
+  "processing_scenario": {
+    "check_docs": true,
+    "check_import": false,
+    "check_vehicles": false
+  }
+}
