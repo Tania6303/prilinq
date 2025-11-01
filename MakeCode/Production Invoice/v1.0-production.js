@@ -38,6 +38,11 @@ function cleanInvoiceForPriority(invoice) {
 // ============================================================================
 
 function normalizeAzureFields(rawFields) {
+    // בדיקת בטיחות - אם rawFields הוא null או undefined
+    if (!rawFields || typeof rawFields !== 'object') {
+        return {};
+    }
+
     const normalized = {};
 
     for (const [key, field] of Object.entries(rawFields)) {
@@ -53,17 +58,18 @@ function normalizeAzureFields(rawFields) {
             normalized[key] = field.valueDate;
         } else if (field.valueNumber !== undefined) {
             normalized[key] = field.valueNumber;
-        } else if (field.valueCurrency !== undefined) {
-            normalized[key] = field.valueCurrency.amount || 0;
+        } else if (field.valueCurrency !== undefined && field.valueCurrency !== null) {
+            normalized[key] = (field.valueCurrency && field.valueCurrency.amount) || 0;
             // שמירה גם של הסכום עם קוד מטבע כשדה נפרד
             if (key.includes('Total') || key.includes('Amount')) {
-                normalized[key + '_amount'] = field.valueCurrency.amount || 0;
-                normalized[key + '_currency'] = field.valueCurrency.currencyCode || '';
+                normalized[key + '_amount'] = (field.valueCurrency && field.valueCurrency.amount) || 0;
+                normalized[key + '_currency'] = (field.valueCurrency && field.valueCurrency.currencyCode) || '';
             }
         } else if (field.valueArray !== undefined && Array.isArray(field.valueArray)) {
             // עיבוד מערכים (Items, UnidentifiedNumbers וכו')
             normalized[key] = field.valueArray.map(item => {
-                if (item.valueObject) {
+                if (!item) return item;
+                if (item.valueObject && item.valueObject !== null) {
                     return normalizeAzureFields(item.valueObject);
                 } else if (item.valueString !== undefined) {
                     return item.valueString;
@@ -73,7 +79,7 @@ function normalizeAzureFields(rawFields) {
                     return item;
                 }
             });
-        } else if (field.valueObject !== undefined) {
+        } else if (field.valueObject !== undefined && field.valueObject !== null) {
             normalized[key] = normalizeAzureFields(field.valueObject);
         } else if (field.content !== undefined) {
             // fallback ל-content
@@ -99,7 +105,10 @@ function convertProductionInputToProcessingInput(productionInput) {
 
     // parse את AZURE אם זה string
     let azureData;
-    if (typeof productionInput.AZURE === 'string') {
+    if (!productionInput.AZURE) {
+        // אם AZURE חסר לגמרי
+        azureData = {};
+    } else if (typeof productionInput.AZURE === 'string') {
         try {
             azureData = JSON.parse(productionInput.AZURE);
         } catch (e) {
