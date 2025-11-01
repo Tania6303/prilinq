@@ -263,6 +263,8 @@ function buildLearnedConfigFromProduction(supname, cars, supTemp) {
 
     // parse SUP_TEMP אם קיים
     let supplierTemplate = null;
+    let parsedTemplate = null;
+
     if (supTemp && typeof supTemp === 'string') {
         try {
             supplierTemplate = JSON.parse(supTemp);
@@ -271,6 +273,25 @@ function buildLearnedConfigFromProduction(supname, cars, supTemp) {
         }
     } else if (supTemp && typeof supTemp === 'object') {
         supplierTemplate = supTemp;
+    }
+
+    // parse TEMPLETE (שגיאת כתיב מכוונת - זה השם בפועל)
+    if (supplierTemplate && supplierTemplate.TEMPLETE) {
+        try {
+            const templateStr = typeof supplierTemplate.TEMPLETE === 'string'
+                ? supplierTemplate.TEMPLETE
+                : JSON.stringify(supplierTemplate.TEMPLETE);
+            const templateData = JSON.parse(templateStr);
+            // חלץ את ה-PINVOICES מתוך invoice_data
+            if (templateData.invoice_data && templateData.invoice_data.PINVOICES && templateData.invoice_data.PINVOICES[0]) {
+                parsedTemplate = {
+                    PINVOICES: [templateData.invoice_data.PINVOICES[0]],
+                    document_types_count: 1
+                };
+            }
+        } catch (e) {
+            parsedTemplate = null;
+        }
     }
 
     // בניית config
@@ -329,7 +350,7 @@ function buildLearnedConfigFromProduction(supname, cars, supTemp) {
                 }
             ]
         },
-        template: supplierTemplate?.template || {
+        template: parsedTemplate || supplierTemplate?.template || {
             PINVOICES: [
                 {
                     SUPNAME: supname || "",
