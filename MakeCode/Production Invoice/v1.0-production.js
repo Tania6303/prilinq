@@ -449,7 +449,7 @@ function processInvoiceComplete(input) {
 
         console.log("DEBUG: inputData keys:", Object.keys(inputData));
 
-        // Parse learned_config אם זה string
+        // בדיקה: האם learned_config הוא SUP_TEMP (יש TEMPLETE)?
         let learnedConfig = inputData.learned_config || {};
         if (typeof learnedConfig === 'string') {
             try {
@@ -457,6 +457,43 @@ function processInvoiceComplete(input) {
             } catch (e) {
                 console.log("DEBUG: Failed to parse learned_config");
                 learnedConfig = {};
+            }
+        }
+
+        // אם יש TEMPLETE - זה SUP_TEMP, לא learned_config מלא
+        if (learnedConfig.TEMPLETE && learnedConfig.SUPNAME) {
+            console.log("DEBUG: learned_config is SUP_TEMP, converting...");
+            // parse TEMPLETE
+            try {
+                const templateStr = typeof learnedConfig.TEMPLETE === 'string'
+                    ? learnedConfig.TEMPLETE
+                    : JSON.stringify(learnedConfig.TEMPLETE);
+                const templateData = JSON.parse(templateStr);
+
+                console.log("DEBUG: TEMPLETE parsed, has technical_config?", !!templateData.technical_config);
+
+                // אם יש technical_config - השתמש בו
+                if (templateData.technical_config) {
+                    learnedConfig = {
+                        status: "success",
+                        supplier_id: learnedConfig.SUPNAME,
+                        supplier_name: learnedConfig.SDES || "",
+                        vendor_tax_id_reference: learnedConfig.VATNUM || "",
+                        config: templateData.technical_config,
+                        template: templateData.invoice_data || { PINVOICES: [{}] }
+                    };
+                } else {
+                    // fallback למבנה פשוט
+                    learnedConfig = {
+                        status: "success",
+                        supplier_id: learnedConfig.SUPNAME,
+                        supplier_name: learnedConfig.SDES || "",
+                        config: {},
+                        template: templateData.invoice_data || { PINVOICES: [{}] }
+                    };
+                }
+            } catch (e) {
+                console.log("DEBUG: Failed to parse TEMPLETE:", e.message);
             }
         }
 
