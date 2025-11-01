@@ -17,6 +17,11 @@
 function cleanInvoiceForPriority(invoice) {
     const cleaned = JSON.parse(JSON.stringify(invoice));
 
+    // וודא ש-PINVOICESCONT_SUBFORM תמיד קיים
+    if (!cleaned.PINVOICESCONT_SUBFORM) {
+        cleaned.PINVOICESCONT_SUBFORM = [];
+    }
+
     if (cleaned.PINVOICEITEMS_SUBFORM) {
         cleaned.PINVOICEITEMS_SUBFORM = cleaned.PINVOICEITEMS_SUBFORM.map(item => {
             delete item.isNewVehicle;
@@ -24,6 +29,17 @@ function cleanInvoiceForPriority(invoice) {
 
             if (item.SPECIALVATFLAG && item.SPECIALVATFLAG !== "Y") {
                 delete item.SPECIALVATFLAG;
+            }
+
+            // הסר שדות undefined - Make.com לא מקבל undefined values
+            if (item.BUDCODE === undefined) {
+                delete item.BUDCODE;
+            }
+            if (item.SPECIALVATFLAG === undefined) {
+                delete item.SPECIALVATFLAG;
+            }
+            if (item.TUNITNAME === undefined) {
+                delete item.TUNITNAME;
             }
 
             return item;
@@ -870,12 +886,18 @@ function analyzeLearning(invoice, config) {
             if (item._learningNote) {
                 const vehicleMatch = item.PDES.match(/\d{3}-\d{2}-\d{3}/);
                 if (vehicleMatch) {
-                    newPatterns.new_vehicles.push({
+                    const vehiclePattern = {
                         vehicle_number: vehicleMatch[0],
-                        suggested_accname: item.ACCNAME,
-                        suggested_budcode: item.BUDCODE,
-                        suggested_vatflag: item.VATFLAG
-                    });
+                        suggested_accname: item.ACCNAME || "",
+                        suggested_vatflag: item.VATFLAG || "Y"
+                    };
+
+                    // הוסף suggested_budcode רק אם קיים
+                    if (item.BUDCODE !== undefined) {
+                        vehiclePattern.suggested_budcode = item.BUDCODE;
+                    }
+
+                    newPatterns.new_vehicles.push(vehiclePattern);
                 }
             }
         });
@@ -905,11 +927,11 @@ if (inputData.AZURE && inputData.SUPNAME) {
 } else {
     // מבנה ישן - Processing Invoice
     const processInput = {
-        learned_config: input.learned_config,
-        docs_list: input.docs_list,
-        import_files: input.import_files,
-        AZURE_RESULT: input.AZURE_RESULT,
-        AZURE_TEXT: input.AZURE_TEXT
+        learned_config: input.learned_config || {},
+        docs_list: input.docs_list || { DOC_YES_NO: "N", list_of_docs: [] },
+        import_files: input.import_files || { IMPFILES: [] },
+        AZURE_RESULT: input.AZURE_RESULT || { data: { fields: {} } },
+        AZURE_TEXT: input.AZURE_TEXT || ""
     };
     result = processInvoiceComplete({ input: [
         { name: "learned_config", value: processInput.learned_config },
