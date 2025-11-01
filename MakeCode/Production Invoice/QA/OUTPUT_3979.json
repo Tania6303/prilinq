@@ -1,0 +1,75 @@
+{
+  "status": "success",
+  "supplier_identification": {
+    "supplier_code": "3979",
+    "supplier_name": "",
+    "identification_method": "vendor_tax_id",
+    "confidence": "high"
+  },
+  "invoice_data": {
+    "PINVOICES": [
+      {
+        "SUPNAME": "3979",
+        "CODE": "ש\"ח",
+        "DEBIT": "D",
+        "IVDATE": "11/05/25",
+        "BOOKNUM": "1013679",
+        "DETAILS": "טיפול 90000 ק\"מ",
+        "PINVOICEITEMS_SUBFORM": [
+          {
+            "PARTNAME": "car",
+            "PDES": "טיפול 90000 ק\"מ",
+            "TQUANT": 1,
+            "TUNITNAME": "יח'",
+            "PRICE": 2331.3,
+            "VATFLAG": "Y",
+            "ACCNAME": "66923"
+          }
+        ],
+        "PINVOICESCONT_SUBFORM": []
+      }
+    ]
+  },
+  "validation": {
+    "all_valid": true,
+    "checks": {},
+    "warnings": []
+  },
+  "learning_analysis": {
+    "learning_required": false,
+    "new_patterns": {
+      "new_partnames": [],
+      "new_vehicles": [],
+      "unknown_accounts": []
+    },
+    "learning_instructions": [],
+    "recommendation": "אין צורך בלמידה"
+  },
+  "execution_report": {
+    "stage": "שלב 6: ניתוח למידה",
+    "found": [
+      "סוג: יבוא=false, תעודות=false, חיוב/זיכוי=D",
+      "תבנית: נמצאה",
+      "דפוסים: נמצאו",
+      "חוקי רכבים: פעילים (171 רכבים)",
+      "booknum: נמצא",
+      "ivdate: נמצא",
+      "details: נמצא",
+      "רכבים: 1 - 148-23-903",
+      "items: נמצא"
+    ],
+    "not_found": [],
+    "warnings": [],
+    "errors": []
+  },
+  "metadata": {
+    "ocr_invoice_id": "1013679",
+    "ocr_invoice_date": "2025-05-11",
+    "ocr_total_amount": 3709,
+    "processing_timestamp": "2025-11-01T16:44:13.966Z",
+    "version": "1.0-production",
+    "input_type": "production",
+    "filename": "3979_1013679.pdf",
+    "cars_count": 52821
+  }
+}
