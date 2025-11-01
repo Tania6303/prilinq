@@ -885,13 +885,17 @@ function createVehicleItems(vehicles, ocrItems, vehicleRules, ocrFields) {
 
 function performValidation(invoice, ocrFields, config, docsList, patterns) {
     const warnings = [];
-    const checks = {};
+    const checks = {
+        required_fields_check: "passed",
+        invoice_structure_check: "passed"
+    };
 
     const requiredFields = ["SUPNAME", "CODE", "DEBIT", "IVDATE", "BOOKNUM"];
     const missingFields = requiredFields.filter(f => !invoice[f]);
 
     if (missingFields.length > 0) {
         warnings.push(`שדות חובה חסרים: ${missingFields.join(', ')}`);
+        checks.required_fields_check = "failed";
     }
 
     return {
