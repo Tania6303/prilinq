@@ -450,6 +450,14 @@ function processInvoiceComplete(input) {
         const azureResult = inputData.AZURE_RESULT || { data: { fields: {} } };
         const azureText = inputData.AZURE_TEXT || "";
 
+        // וידוא שיש data.fields
+        if (!azureResult.data) {
+            azureResult.data = { fields: {}, documents: [] };
+        }
+        if (!azureResult.data.fields) {
+            azureResult.data.fields = {};
+        }
+
         executionReport.stage = "שלב 1: זיהוי סוג ותבנית";
 
         const hasImport = checkImportExists(importFiles);
